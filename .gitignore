@@ -1,0 +1,64 @@
+# =========================
+# PhaseShift Digital Twin
+# Monorepo .gitignore
+# =========================
+
+###########################
+# ROS2 / colcon
+###########################
+
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+ros2_ws/.colcon/
+ros2_ws/.pytest_cache/
+
+ros2_ws/**/__pycache__/
+ros2_ws/**/*.pyc
+
+###########################
+# Unity
+###########################
+
+unity/**/Library/
+unity/**/Temp/
+unity/**/Obj/
+unity/**/Build/
+unity/**/Builds/
+unity/**/Logs/
+unity/**/UserSettings/
+
+unity/**/*.csproj
+unity/**/*.unityproj
+unity/**/*.sln
+unity/**/*.user
+unity/**/*.userprefs
+unity/**/*.pidb
+unity/**/*.booproj
+
+###########################
+# OS
+###########################
+
+.DS_Store
+Thumbs.db
+
+###########################
+# IDE
+###########################
+
+.vscode/
+.idea/
+*.code-workspace
+
+###########################
+# Python
+###########################
+
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.egg-info/
+dist/
