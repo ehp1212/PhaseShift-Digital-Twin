@@ -1,0 +1,29 @@
+slam_toolbox:
+  ros__parameters:
+
+    use_sim_time: false
+
+    # ===== TF Frames =====
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_footprint
+    scan_topic: /scan
+
+    # ===== Mode =====
+    mode: mapping
+
+    # ===== Basic tuning (minimal) =====
+    resolution: 0.05
+    publish_period_sec: 0.5
+
+    transform_publish_period: 0.02
+
+    # Keep simple for portfolio
+    use_scan_matching: true
+    use_scan_barycenter: true
+
+    minimum_travel_distance: 0.1
+    minimum_travel_heading: 0.1
+
+    # Debugging friendly
+    debug_logging: false
