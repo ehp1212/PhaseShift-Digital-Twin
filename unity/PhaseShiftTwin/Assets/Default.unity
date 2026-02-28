@@ -422,6 +422,7 @@ GameObject:
   - component: {fileID: 1823688468}
   - component: {fileID: 1823688470}
   - component: {fileID: 1823688471}
+  - component: {fileID: 1823688472}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -661,11 +662,23 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1823688464}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 72620fb0a9290863f8643557405c48e3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ROS2.ROS2TalkerExample
+--- !u!114 &1823688472
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1823688464}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 51eda399893f466c184ff122bfa50c2c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TestSubscriber
 --- !u!1 &2013410473
 GameObject:
   m_ObjectHideFlags: 1

@@ -1,0 +1,6 @@
+[submodule "unity/PhaseShiftTwin/Assets/UnitySensor"]
+	path = unity/PhaseShiftTwin/Assets/UnitySensor
+	url = https://github.com/ehp1212/unity_sensor_hdrp.git
+[submodule "unity/PhaseShiftTwin/Assets/Sensor"]
+	path = unity/PhaseShiftTwin/Assets/Sensor
+	url = git@github.com:ehp1212/UnitySensor_HDRP.git
