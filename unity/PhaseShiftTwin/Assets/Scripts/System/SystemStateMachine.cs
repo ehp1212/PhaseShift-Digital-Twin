@@ -19,23 +19,26 @@ namespace System
     public class SystemStateMachine
     {
         private Dictionary<byte, ISystemState> states = new();
-        private byte _currentPhase = SystemPhases.PHASE_INIT;
         private ISystemState currentState;
-        public byte Current => _currentPhase;
+        
+        public byte Current => currentState?.Phase ?? SystemPhases.PHASE_INIT;
 
-        public SystemStateMachine()
+        public SystemStateMachine(ROS2System ros2System)
         {
-            states[SystemPhases.PHASE_INIT] = new InitState();
-            states[SystemPhases.PHASE_BOOT] = new BootState();
-            states[SystemPhases.PHASE_CONNECTING] = new ConnectingState();
-            states[SystemPhases.PHASE_SLAM_ACTIVE] = new SlamActiveState();
-            states[SystemPhases.PHASE_MAP_SAVED] = new MapSavedState();
-            states[SystemPhases.PHASE_NAV_READY] = new NavReadyState();
-            states[SystemPhases.PHASE_NAVIGATING] = new NavigatingState();
-            states[SystemPhases.PHASE_ERROR] = new ErrorState();
+            // Register states
+            states[SystemPhases.PHASE_INIT] = new InitState(ros2System);
+            states[SystemPhases.PHASE_BOOT] = new BootState(ros2System);
+            states[SystemPhases.PHASE_CONNECTING] = new ConnectingState(ros2System);
+            states[SystemPhases.PHASE_SLAM_ACTIVE] = new SlamActiveState(ros2System);
+            states[SystemPhases.PHASE_MAP_SAVED] = new MapSavedState(ros2System);
+            states[SystemPhases.PHASE_NAV_READY] = new NavReadyState(ros2System);
+            states[SystemPhases.PHASE_NAVIGATING] = new NavigatingState(ros2System);
+            states[SystemPhases.PHASE_ERROR] = new ErrorState(ros2System);
+            
+            currentState = states[SystemPhases.PHASE_INIT];
         }
 
-        public void ApplyPhase(byte newPhase)
+        public void ApplyPhase(byte newPhase, bool force = false)
         {
             if (!states.ContainsKey(newPhase))
             {
@@ -43,11 +46,10 @@ namespace System
                 return;
             }
 
-            if (currentState != null && currentState.Phase == newPhase)
+            if (!force && currentState != null && currentState.Phase == newPhase)
                 return; // same state → ignore
 
             currentState?.Exit();
-            _currentPhase = newPhase;
             currentState = states[newPhase];
             currentState.Enter();
         }

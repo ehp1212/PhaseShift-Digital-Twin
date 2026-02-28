@@ -1,5 +1,4 @@
 using System.Utility;
-using UnityEngine;
 
 namespace System
 {
@@ -9,27 +8,39 @@ namespace System
 
         void Enter();
         void Exit();
-        void Tick();   // optional (UI animation 등)
+        void Tick();  
     }
 
     public abstract class PhaseSystemState : ISystemState
     {
-        public byte Phase { get; }
+        protected readonly ROS2System ros2System;
+        public byte Phase { get; set; }
         public abstract void Enter();
         public abstract void Exit();
         public abstract void Tick();
+
+        public PhaseSystemState(ROS2System ros2System)
+        {
+            this.ros2System = ros2System;
+        }
     }
 
     public class InitState : PhaseSystemState
     {
+        public InitState(ROS2System ros2System) : base(ros2System)
+        {
+            Phase = SystemPhases.PHASE_INIT;
+        }
+
         public override void Enter()
         {
             StateLoggerUtility.LogState<InitState>();
-            Debug.Log($"Waiting for a message from PhaseShift package...");
+            ros2System.LogScreenUI("Waiting for a message from PhaseShift package...");
         }
 
         public override void Exit()
         {
+            ros2System.CloseScreenUI();
         }
 
         public override void Tick()
@@ -39,9 +50,15 @@ namespace System
     
     public class BootState : PhaseSystemState
     {
+        public BootState(ROS2System ros2System) : base(ros2System)
+        {
+            Phase = SystemPhases.PHASE_BOOT;
+        }
+
         public override void Enter()
         {
             StateLoggerUtility.LogState<BootState>();
+            ros2System.LogScreenUI("Waiting for the boot process of PhaseShift package to complete...");
         }
 
         public override void Exit()
@@ -55,6 +72,11 @@ namespace System
     
     public class ConnectingState : PhaseSystemState
     {
+        public ConnectingState(ROS2System ros2System) : base(ros2System)
+        {
+            Phase = SystemPhases.PHASE_CONNECTING;
+        }
+
         public override void Enter()
         {
             StateLoggerUtility.LogState<ConnectingState>();
@@ -71,6 +93,11 @@ namespace System
     
     public class SlamActiveState : PhaseSystemState
     {
+        public SlamActiveState(ROS2System ros2System) : base(ros2System)
+        {
+            Phase = SystemPhases.PHASE_SLAM_ACTIVE;
+        }
+
         public override void Enter()
         {
         }
@@ -86,6 +113,11 @@ namespace System
     
     public class MapSavedState : PhaseSystemState
     {
+        public MapSavedState(ROS2System ros2System) : base(ros2System)
+        {
+            Phase = SystemPhases.PHASE_MAP_SAVED;
+        }
+
         public override void Enter()
         {
         }
@@ -101,6 +133,11 @@ namespace System
     
     public class NavReadyState : PhaseSystemState
     {
+        public NavReadyState(ROS2System ros2System) : base(ros2System)
+        {
+            Phase = SystemPhases.PHASE_NAV_READY;
+        }
+
         public override void Enter()
         {
         }
@@ -116,6 +153,11 @@ namespace System
     
     public class NavigatingState : PhaseSystemState
     {
+        public NavigatingState(ROS2System ros2System) : base(ros2System)
+        {
+            Phase = SystemPhases.PHASE_NAVIGATING;
+        }
+
         public override void Enter()
         {
         }
@@ -131,6 +173,11 @@ namespace System
     
     public class ErrorState : PhaseSystemState
     {
+        public ErrorState(ROS2System ros2System) : base(ros2System)
+        {
+            Phase = SystemPhases.PHASE_ERROR;
+        }
+
         public override void Enter()
         {
         }

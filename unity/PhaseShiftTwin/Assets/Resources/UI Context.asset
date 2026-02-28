@@ -1,0 +1,15 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2b4fe43fd6e16d36d8d641c9384d8d8e, type: 3}
+  m_Name: UI Context
+  m_EditorClassIdentifier: Assembly-CSharp::UI.UIContext
+  <ScreenUI>k__BackingField: {fileID: 760829006145127410, guid: be1a38f81ffcda8e3967fbb696526444, type: 3}
