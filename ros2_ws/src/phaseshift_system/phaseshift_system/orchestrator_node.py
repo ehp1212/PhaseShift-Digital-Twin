@@ -1,22 +1,118 @@
+import os
 import rclpy
 from rclpy.node import Node
+from enum import Enum
 
-# phaseshift_system
-#     └── orchestrator_node.py
-#             ├── SlamController (from control pkg)
-#             └── Nav2Controller (from control pkg)
+from phaseshift_control.slam_controller import SlamController
+from .system_state_publisher import SystemStatePublisher
 
-# phaseshift_control
-#     ├── lifecycle_client_base.py
-#     ├── slam_controller.py
-#     ├── nav2_controller.py
+class SystemPhase(Enum):
+    BOOT = 0
+
+    CHECK_MAP = 1
+    CONNECTING = 2
+    SLAM_ACTIVE = 3
+    MAP_SAVED = 4
+
+    NAV_READY = 5
+    NAVIGATING = 6
+    
+    ERROR = 7
 
 class OrchestratorNode(Node):
 
     def __init__(self):
         super().__init__('orchestrator')
-        self.get_logger().info("Phaseshift Orchestrator Started")
+        self.get_logger().info("Orchestrator started")
 
+        # Controllers
+        self._system_publisher = SystemStatePublisher(self)
+        self.slam_controller = SlamController(self)
+
+        # Internal state
+        self.phase = SystemPhase.BOOT
+        self._has_map = False
+        self._map_path = "/home/jimmy/maps/map.yaml"
+
+        # Publish initial state
+        self.publish_state(self.phase)
+
+        # Condition loop (Hybrid: condition watcher only)
+        self.create_timer(0.5, self._check_condition_loop)
+
+    # ==================================================
+    # Phase Management
+    # ==================================================
+
+    def set_phase(self, new_phase: SystemPhase):
+
+        if self.phase == new_phase:
+            return
+
+        old_phase = self.phase
+        self.on_exit(old_phase)
+
+        self.phase = new_phase
+        self.get_logger().info(f"STATE → {self.phase.name}")
+
+        self.on_enter(new_phase)
+        self.publish_state(new_phase)
+
+    def on_enter(self, phase: SystemPhase):
+
+        if phase == SystemPhase.BOOT:
+            self.get_logger().info("System booting...")
+
+        elif phase == SystemPhase.CHECK_MAP:
+            self.get_logger().info("Checking map availability...")
+
+        elif phase == SystemPhase.CONNECTING:
+            self.get_logger().info("Waiting for SLAM readiness...")
+
+        elif phase == SystemPhase.SLAM_ACTIVE:
+            self.get_logger().info("SLAM is ACTIVE")
+
+        elif phase == SystemPhase.ERROR:
+            self.get_logger().error("System entered ERROR state")
+
+    def on_exit(self, old_phase: SystemPhase):
+        pass
+
+    # ==================================================
+    # Hybrid Condition Loop (Watcher Only)
+    # ==================================================
+
+    def _check_condition_loop(self):
+
+        # BOOT → CHECK_MAP (1회 전이)
+        if self.phase == SystemPhase.BOOT:
+            self.set_phase(SystemPhase.CHECK_MAP)
+
+        # CHECK_MAP → CONNECTING or NAV_READY
+        elif self.phase == SystemPhase.CHECK_MAP:
+            self._has_map = os.path.exists(self._map_path)
+
+            if self._has_map:
+                self.set_phase(SystemPhase.NAV_READY)
+            else:
+                self.set_phase(SystemPhase.CONNECTING)
+
+        # CONNECTING → SLAM_ACTIVE
+        elif self.phase == SystemPhase.CONNECTING:
+            if self.slam_controller.is_ready():
+                self.set_phase(SystemPhase.SLAM_ACTIVE)
+
+    # ==================================================
+    # System State Publishing
+    # ==================================================
+
+    def publish_state(self, phase: SystemPhase):
+        self._system_publisher.publish(phase.value)
+
+
+# ======================================================
+# Main Entry
+# ======================================================
 
 def main(args=None):
     rclpy.init(args=args)

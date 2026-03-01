@@ -8,7 +8,7 @@ namespace UI
         [SerializeField] private TMP_Text _message;
 
         public void SetText(string msg)
-        {Debug.Log(msg);
+        {
             _message.text = msg;
         }
 

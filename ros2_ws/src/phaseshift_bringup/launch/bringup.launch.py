@@ -46,7 +46,6 @@ def generate_launch_description():
         output='screen',
         parameters=[
             os.path.join(pkg_bringup, 'config', 'slam.yaml'),
-            {'use_lifecycle': True}
         ]
     )
 

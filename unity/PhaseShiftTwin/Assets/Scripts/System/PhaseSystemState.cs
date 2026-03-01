@@ -63,6 +63,28 @@ namespace System
 
         public override void Exit()
         {
+            ros2System.CloseScreenUI();
+        }
+
+        public override void Tick()
+        {
+        }
+    }
+
+    public class CheckMapState : PhaseSystemState
+    {
+        public CheckMapState(ROS2System ros2System) : base(ros2System)
+        {
+            Phase = SystemPhases.PHASE_CHECK_MAP;
+        }
+
+        public override void Enter()
+        {
+            StateLoggerUtility.LogState<CheckMapState>();
+        }
+
+        public override void Exit()
+        {
         }
 
         public override void Tick()
@@ -80,6 +102,9 @@ namespace System
         public override void Enter()
         {
             StateLoggerUtility.LogState<ConnectingState>();
+            
+            // Start 2d scanner to provide /scan topic
+            ros2System.ToggleScan(true);
         }
 
         public override void Exit()
@@ -104,6 +129,7 @@ namespace System
 
         public override void Exit()
         {
+            ros2System.ToggleScan(false);
         }
 
         public override void Tick()

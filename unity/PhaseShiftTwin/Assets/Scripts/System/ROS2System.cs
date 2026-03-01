@@ -1,5 +1,6 @@
 using phaseshift_interfaces.msg;
 using ROS2;
+using Sensor.Lidar._2D;
 using UI;
 using UnityEngine;
 using UnityEngine.Events;
@@ -25,6 +26,7 @@ namespace System
         private byte _pendingPhase;
 
         private ScreenUI ScreenUI { get; set; }
+        private ScanRaycastSensor ScanRaycastSensor { get; set; }
 
         protected override void Awake()
         {
@@ -43,7 +45,7 @@ namespace System
         protected override void Update()
         {
             base.Update();
-            
+
             // Check state changed and run in main thread
             if (SystemState.Current != _pendingPhase)
             {
@@ -58,9 +60,10 @@ namespace System
             Debug.Log($"ROS2System initialized.");
             OnInitialize?.Invoke();
             
-            var uiContext = UnityEngine.Resources.Load<UIContext>("UI Context");
-            var screenUIPrefab = uiContext.ScreenUI;
-            ScreenUI = Instantiate(screenUIPrefab);
+            var context = UnityEngine.Resources.Load<SceneContext>("Context");
+            ScreenUI = Instantiate(context.ScreenUI);
+            ScanRaycastSensor = Instantiate(context.ScanRaycastSensor);
+            ToggleScan(false);
             
             _systemStateSub = ros2Node.CreateSubscription<SystemState>(_state_topicName, SetPendingPhrase);
 
@@ -68,7 +71,7 @@ namespace System
             _pendingPhase = initialPhase;
             SystemState.ApplyPhase(initialPhase, true);
         }
-
+        
         private void SetPendingPhrase(SystemState obj)
         {
             _pendingPhase = obj.Phase;
@@ -83,6 +86,11 @@ namespace System
         public void CloseScreenUI()
         {
             ScreenUI.Toggle(false);
+        }
+
+        public void ToggleScan(bool toggle)
+        {
+            ScanRaycastSensor.gameObject.SetActive(toggle);
         }
     }
 }

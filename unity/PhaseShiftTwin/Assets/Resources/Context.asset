@@ -10,6 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2b4fe43fd6e16d36d8d641c9384d8d8e, type: 3}
-  m_Name: UI Context
+  m_Name: Context
   m_EditorClassIdentifier: Assembly-CSharp::UI.UIContext
   <ScreenUI>k__BackingField: {fileID: 760829006145127410, guid: be1a38f81ffcda8e3967fbb696526444, type: 3}
+  <ScanRaycastSensor>k__BackingField: {fileID: 6294662527392540139, guid: 60c8767b15906d3ee9452df4eda6219e, type: 3}
