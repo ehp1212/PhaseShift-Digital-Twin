@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'odometry_node = phaseshift_control.odometry_node:main',
+            'slam_test_node = phaseshift_control.slam_test_node:main',
         ],
     },
 )

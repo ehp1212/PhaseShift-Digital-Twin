@@ -23,7 +23,7 @@ ros2_ws/**/*.pyc
 
 unity/**/Library/
 unity/**/Temp/
-unity/**/Obj/
+unity/**/[Oo]bj/
 unity/**/Build/
 unity/**/Builds/
 unity/**/Logs/

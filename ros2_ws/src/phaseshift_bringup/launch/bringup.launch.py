@@ -45,7 +45,8 @@ def generate_launch_description():
         name='slam_toolbox',
         output='screen',
         parameters=[
-            os.path.join(pkg_bringup, 'config', 'slam.yaml')
+            os.path.join(pkg_bringup, 'config', 'slam.yaml'),
+            {'use_lifecycle': True}
         ]
     )
 
@@ -81,6 +82,6 @@ def generate_launch_description():
         robot_state_publisher,
         odom_node,
         slam_node,
-        nav2_launch,
+        # nav2_launch,
         orchestrator
     ])

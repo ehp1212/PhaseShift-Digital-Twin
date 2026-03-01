@@ -1,6 +1,16 @@
 import rclpy
 from rclpy.node import Node
 
+# phaseshift_system
+#     └── orchestrator_node.py
+#             ├── SlamController (from control pkg)
+#             └── Nav2Controller (from control pkg)
+
+# phaseshift_control
+#     ├── lifecycle_client_base.py
+#     ├── slam_controller.py
+#     ├── nav2_controller.py
+
 class OrchestratorNode(Node):
 
     def __init__(self):
