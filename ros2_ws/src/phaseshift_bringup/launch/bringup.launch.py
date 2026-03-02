@@ -29,6 +29,13 @@ def generate_launch_description():
     # ==========================
     # Odometry (always active)
     # ==========================
+    # odom_node = Node(
+    #     package='phaseshift_control',
+    #     executable='diff_drive_integrator_node',
+    #     name='diff_drive_integrator_node',
+    #     output='screen'
+    # )
+
     odom_node = Node(
         package='phaseshift_control',
         executable='odometry_node',

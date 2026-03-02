@@ -35,6 +35,7 @@ class OdometryNode(Node):
     def cmd_callback(self, msg: Twist):
         self.vx = msg.linear.x
         self.wz = msg.angular.z
+        self.get_logger().info(f'[{self.vx} - {self.wz}]')
 
     def update(self):
 

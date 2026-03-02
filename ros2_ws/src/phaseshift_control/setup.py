@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'odometry_node = phaseshift_control.odometry_node:main',
             'slam_test_node = phaseshift_control.slam_test_node:main',
+            'diff_drive_integrator_node = phaseshift_control.diff_drive_integrator:main'
         ],
     },
 )
