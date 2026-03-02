@@ -45,9 +45,25 @@ class SlamController:
             return True
         except:
             return False
+    
+    def is_odom_tf_active(self) -> bool:
+        try:
+            self.tf_buffer.lookup_transform(
+                'odom',
+                'base_footprint',
+                rclpy.time.Time(),
+                timeout=Duration(seconds=0.1)
+            )
+            return True
+        except:
+            return False
 
+    # Slam Ready Condition
+    # receive laser scan 
+    # odom -> bast_footprint tf
+    # after pose graph initialized
     def is_ready(self) -> bool:
-        return self.is_map_active() and self.is_map_tf_active()
+        return self.is_map_active() and self.is_map_tf_active() and self.is_odom_tf_active()
 
     # ----------------------------------------------
     # Map Save

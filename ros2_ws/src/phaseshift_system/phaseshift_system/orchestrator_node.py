@@ -3,6 +3,9 @@ import rclpy
 from rclpy.node import Node
 from enum import Enum
 
+from lifecycle_msgs.srv import ChangeState
+from lifecycle_msgs.msg import Transition
+
 from phaseshift_control.slam_controller import SlamController
 from .system_state_publisher import SystemStatePublisher
 
@@ -28,6 +31,11 @@ class OrchestratorNode(Node):
         # Controllers
         self._system_publisher = SystemStatePublisher(self)
         self.slam_controller = SlamController(self)
+
+        self.odom_client = self.create_client(
+            ChangeState,
+            '/odometry_node/change_state'
+        )
 
         # Internal state
         self.phase = SystemPhase.BOOT
@@ -96,6 +104,7 @@ class OrchestratorNode(Node):
                 self.set_phase(SystemPhase.NAV_READY)
             else:
                 self.set_phase(SystemPhase.CONNECTING)
+                self.activate_odom()
 
         # CONNECTING → SLAM_ACTIVE
         elif self.phase == SystemPhase.CONNECTING:
@@ -109,6 +118,30 @@ class OrchestratorNode(Node):
     def publish_state(self, phase: SystemPhase):
         self._system_publisher.publish(phase.value)
 
+
+    # ==================================================
+    # Odom State Publishing
+    # ==================================================
+    def activate_odom(self):
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_CONFIGURE
+        self.odom_client.call_async(req)
+
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_ACTIVATE
+        self.odom_client.call_async(req)
+
+    def deactivate_odom(self):
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_DEACTIVATE
+        self.odom_client.call_async(req)
+
+    # def change_state(self, transition_id):
+    #     req = ChangeState.Request()
+    #     req.transition.id = transition_id
+    #     future = self.odom_client.call_async(req)
+    #     rclpy.spin_until_future_complete(self, future)
+    #     return future.result()
 
 # ======================================================
 # Main Entry

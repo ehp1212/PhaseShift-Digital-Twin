@@ -18,7 +18,7 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='jimmy',
-    maintainer_email='neil.harrison1@global.amentum.com',
+    maintainer_email='eunhyeon1212p@gmail.com',
     description='TODO: Package description',
     license='TODO: License declaration',
     tests_require=['pytest'],
