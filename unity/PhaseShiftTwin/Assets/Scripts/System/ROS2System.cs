@@ -15,6 +15,8 @@ namespace System
         [Header("State")]
         [SerializeField] private string _nodeName = "phaseshift_unity_system";
         [SerializeField] private string _state_topicName = "phaseshift_state";
+
+        [SerializeField] private Control _control;
         
         protected override string nodeName => _nodeName;
         
@@ -62,7 +64,7 @@ namespace System
             
             var context = UnityEngine.Resources.Load<SceneContext>("Context");
             ScreenUI = Instantiate(context.ScreenUI);
-            ScanRaycastSensor = Instantiate(context.ScanRaycastSensor);
+            ScanRaycastSensor = Instantiate(context.ScanRaycastSensor, _control.transform);
             ToggleScan(false);
             
             _systemStateSub = ros2Node.CreateSubscription<SystemState>(_state_topicName, SetPendingPhrase);
@@ -91,6 +93,11 @@ namespace System
         public void ToggleScan(bool toggle)
         {
             ScanRaycastSensor.gameObject.SetActive(toggle);
+        }
+
+        public void StartManualDriving(bool start)
+        {
+            _control.StartDriving(start);
         }
     }
 }

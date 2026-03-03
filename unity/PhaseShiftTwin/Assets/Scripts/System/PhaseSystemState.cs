@@ -125,11 +125,16 @@ namespace System
 
         public override void Enter()
         {
+            StateLoggerUtility.LogState<SlamActiveState>();
+            
+            // Turn on manual driving
+            ros2System.StartManualDriving(true);
         }
 
         public override void Exit()
         {
             ros2System.ToggleScan(false);
+            ros2System.StartManualDriving(false);
         }
 
         public override void Tick()

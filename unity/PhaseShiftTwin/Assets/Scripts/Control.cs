@@ -14,6 +14,8 @@ public class Control : MonoBehaviour
     [SerializeField] private float maxLinearVelocity = 1.0f;   // m/s
     [SerializeField] private float maxAngularVelocity = 1.0f;  // rad/s
     
+    private bool _initialize;
+
     public string NodeName => _nodeName;
     public string TopicName => _topicName;
     public float MaxLinearVelocity => maxLinearVelocity;
@@ -28,8 +30,16 @@ public class Control : MonoBehaviour
 
     private void Update()
     {
+        Debug.DrawRay(transform.position, transform.forward * 2f, Color.red);
+        
+        if (!_initialize) return;
         InputRouter.ProcessInput();
         InputRouter.PublishInput();
+    }
+
+    public void StartDriving(bool start)
+    {
+        _initialize = start;
     }
 }
 
@@ -68,7 +78,7 @@ public class InputRouter
 
         _twistMsg.Angular.X = 0.0;
         _twistMsg.Angular.Y = 0.0;
-        _twistMsg.Angular.Z = _angularInput * _control.MaxAngularVelocity;
+        _twistMsg.Angular.Z = -_angularInput * _control.MaxAngularVelocity;
 
         _cmdPublisher.Publish(_twistMsg);
     }
