@@ -21,6 +21,8 @@ ros2_ws/**/*.pyc
 # Unity
 ###########################
 
+unity/**/Assets/Default.meta
+unity/**/Assets/Default/**
 unity/**/Library/
 unity/**/Temp/
 unity/**/[Oo]bj/
