@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 5439605618264525046}
   - component: {fileID: 6294662527392540139}
   - component: {fileID: 8615058315245360155}
+  - component: {fileID: 3390390099375141468}
   m_Layer: 0
   m_Name: Scanner
   m_TagString: Untagged
@@ -65,3 +66,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Sensor.Lidar._2D.ScanSensorVisualizer
   _sensor: {fileID: 0}
+--- !u!114 &3390390099375141468
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5118418784077463169}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 715803c6863ddf065b21e76bc378e6c6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Sensor.Visualizer.SLAMGeometryMapVisualizer
+  _shader: {fileID: 4800000, guid: 558162823a0d3a05ca1a74fa1e4f54a7, type: 3}
+  _pointSize: 0.2
+  _maxPointCount: 200000
+  _scanRaycastSensor: {fileID: 6294662527392540139}

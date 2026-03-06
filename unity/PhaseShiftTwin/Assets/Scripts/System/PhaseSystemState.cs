@@ -129,12 +129,14 @@ namespace System
             
             // Turn on manual driving
             ros2System.StartManualDriving(true);
+            ros2System.ShowSLAMMap(true);
         }
 
         public override void Exit()
         {
             ros2System.ToggleScan(false);
             ros2System.StartManualDriving(false);
+            ros2System.ShowSLAMMap(false);
         }
 
         public override void Tick()

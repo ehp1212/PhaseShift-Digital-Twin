@@ -54,7 +54,8 @@ namespace Communication.Thread
         public float Resolution;
 
         public Vector3 OriginRos;   // map frame origin
-
+        public Quaternion OriginRotationRos;
+        
         public sbyte[] Data;        // immutable after creation
     }
     

@@ -1,6 +1,7 @@
 using phaseshift_interfaces.msg;
 using ROS2;
 using Sensor.Lidar._2D;
+using Sensor.Visualizer;
 using UI;
 using UnityEngine;
 using UnityEngine.Events;
@@ -29,6 +30,7 @@ namespace System
 
         private ScreenUI ScreenUI { get; set; }
         private ScanRaycastSensor ScanRaycastSensor { get; set; }
+        private SLAMGeometryMapVisualizer SLAMGeometryMapVisualizer { get; set; }
 
         protected override void Awake()
         {
@@ -67,6 +69,10 @@ namespace System
             ScanRaycastSensor = Instantiate(context.ScanRaycastSensor, _control.transform);
             ToggleScan(false);
             
+            SLAMGeometryMapVisualizer = FindFirstObjectByType<SLAMGeometryMapVisualizer>();
+            SLAMGeometryMapVisualizer.Initialize(ScanRaycastSensor);
+            ShowSLAMMap(false);
+            
             _systemStateSub = ros2Node.CreateSubscription<SystemState>(_state_topicName, SetPendingPhrase);
 
             var initialPhase = SystemState.Current;
@@ -98,6 +104,11 @@ namespace System
         public void StartManualDriving(bool start)
         {
             _control.StartDriving(start);
+        }
+
+        public void ShowSLAMMap(bool open)
+        {
+            SLAMGeometryMapVisualizer.Show(open);
         }
     }
 }
