@@ -8,9 +8,6 @@ using UnityEngine.Events;
 
 namespace System
 {
-    /// <summary>
-    /// Crea
-    /// </summary>
     public class ROS2System : ROS2Behaviour
     {
         [Header("State")]
@@ -29,8 +26,12 @@ namespace System
         private byte _pendingPhase;
 
         private ScreenUI ScreenUI { get; set; }
+        public SLAMUI SLAMUI { get; set; }
+        
         private ScanRaycastSensor ScanRaycastSensor { get; set; }
         private SLAMGeometryMapVisualizer SLAMGeometryMapVisualizer { get; set; }
+
+        public ROS2ServiceController ROS2ServiceController { get; set; }
 
         protected override void Awake()
         {
@@ -40,6 +41,8 @@ namespace System
 
             Instance = this;
             SystemState = new SystemStateMachine(this);
+            ROS2ServiceController = new ROS2ServiceController(this);
+            OnInitialize.AddListener(ROS2ServiceController.Initialize);
         }
 
         protected override void Start()
@@ -69,9 +72,12 @@ namespace System
             ScanRaycastSensor = Instantiate(context.ScanRaycastSensor, _control.transform);
             ToggleScan(false);
             
+            SLAMUI = Instantiate(context.SlamUI);
+            SLAMUI.Toggle(false);
+            
             SLAMGeometryMapVisualizer = FindFirstObjectByType<SLAMGeometryMapVisualizer>();
             SLAMGeometryMapVisualizer.Initialize(ScanRaycastSensor);
-            ShowSLAMMap(false);
+            SLAMGeometryMapVisualizer.Show(false);
             
             _systemStateSub = ros2Node.CreateSubscription<SystemState>(_state_topicName, SetPendingPhrase);
 
@@ -80,6 +86,7 @@ namespace System
             SystemState.ApplyPhase(initialPhase, true);
         }
         
+
         private void SetPendingPhrase(SystemState obj)
         {
             _pendingPhase = obj.Phase;
@@ -98,6 +105,7 @@ namespace System
 
         public void ToggleScan(bool toggle)
         {
+            Debug.Log($"TOGGLE SCAN: {toggle}");
             ScanRaycastSensor.gameObject.SetActive(toggle);
         }
 
@@ -106,9 +114,10 @@ namespace System
             _control.StartDriving(start);
         }
 
-        public void ShowSLAMMap(bool open)
+        public void EnterSlamPhase(bool enter)
         {
-            SLAMGeometryMapVisualizer.Show(open);
+            SLAMUI.Toggle(enter);
+            SLAMGeometryMapVisualizer.Show(enter);
         }
     }
 }

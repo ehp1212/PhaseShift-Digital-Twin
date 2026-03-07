@@ -6,10 +6,11 @@ namespace UI
     [CreateAssetMenu(menuName = "UI Context")]
     public class SceneContext : ScriptableObject
     {
-        [Header("UI")]
+        [field: Header("UI")]
         [field: SerializeField] public ScreenUI ScreenUI { get; private set; }
+        [field: SerializeField] public SLAMUI SlamUI { get; private set; }
         
-        [Header("Sensor")]
+        [field: Header("Sensor")]
         [field: SerializeField] public ScanRaycastSensor ScanRaycastSensor { get; private set; }
     }
 }

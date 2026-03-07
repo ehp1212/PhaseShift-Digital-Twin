@@ -1,5 +1,7 @@
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import String
+
 from nav_msgs.msg import OccupancyGrid
 from slam_toolbox.srv import SaveMap
 from tf2_ros import Buffer, TransformListener
@@ -11,12 +13,17 @@ class SlamController:
         self.node = node
 
         self._map_received = False
-
+        self.is_map_saved = False
         self._map_sub = node.create_subscription(
             OccupancyGrid,
             '/map',
             self._map_callback,
             10
+        )
+
+        self._save_map_cli = self.node.create_client(
+            SaveMap,
+            '/slam_toolbox/save_map'
         )
 
         self.tf_buffer = Buffer()
@@ -59,6 +66,9 @@ class SlamController:
     # after pose graph initialized
     def is_ready(self) -> bool:
         return self.is_map_active() and self.is_map_tf_active() and self.is_odom_tf_active()
+    
+    def map_saved(self) -> bool:
+        return self.is_map_saved
 
     # ----------------------------------------------
     # Map Save
@@ -72,25 +82,41 @@ class SlamController:
             return
 
         request = SaveMap.Request()
-        request.name = path
+        request.name = String()
+        request.name.data = path
+        self.is_map_saved = False
 
-        future = self._save_map_cli.call_async(request)
+        self._save_map_future = self._save_map_cli.call_async(request)
+        # self._save_map_future.add_done_callback(self._on_save_map_done)
 
-        future.add_done_callback(self._on_save_map_done)
+        # TODO: As this is single thread, use another service call cannot handle callback
+        self._check_future_timer = self.node.create_timer(
+            0.1,
+            self.check_save_map_status
+        )
+    
+    def check_save_map_status(self):
+        if self._save_map_future is None:
+            return
+        
+        if not self._save_map_future.done():
+            return
+        
+        try:
+            result = self._save_map_future.result()
+            self.is_map_saved = True
+            # self.node.get_logger().info("Map saved successfully")
+            self.node.on_map_save_succeeded()
 
-    def _on_save_map_done(self, future):
-
-        result = future.result()
-
-        if result is None:
-            self.node.get_logger().error("Map save failed")
+        except Exception as e:
+            self.node.get_logger().error(f"SaveMap failed: {e}")
             self.node.on_map_save_failed()
             return
-
-        self.node.get_logger().info("Map saved successfully")
-
-        self.node.on_map_saved()
-
+        finally:
+            self._check_future_timer.destroy()
+            self._check_future_timer = None
+            self._save_map_future = None
+    
     # ----------------------------------------------
 
     def _map_callback(self, msg):

@@ -40,7 +40,6 @@ namespace System
 
         public override void Exit()
         {
-            ros2System.CloseScreenUI();
         }
 
         public override void Tick()
@@ -85,6 +84,7 @@ namespace System
 
         public override void Exit()
         {
+            ros2System.CloseScreenUI();
         }
 
         public override void Tick()
@@ -129,14 +129,15 @@ namespace System
             
             // Turn on manual driving
             ros2System.StartManualDriving(true);
-            ros2System.ShowSLAMMap(true);
+            ros2System.EnterSlamPhase(true);
         }
 
         public override void Exit()
         {
             ros2System.ToggleScan(false);
+            
             ros2System.StartManualDriving(false);
-            ros2System.ShowSLAMMap(false);
+            ros2System.EnterSlamPhase(false);
         }
 
         public override void Tick()

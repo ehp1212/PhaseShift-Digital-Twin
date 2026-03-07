@@ -6,7 +6,10 @@ from enum import Enum
 
 from lifecycle_msgs.srv import ChangeState
 from lifecycle_msgs.msg import Transition
-from slam_toolbox.srv import SaveMap
+
+from phaseshift_interfaces.srv import SaveMap
+from phaseshift_interfaces.srv import SetGoal
+from phaseshift_interfaces.srv import NavigateToGoal
 
 from phaseshift_control.slam_controller import SlamController
 from .system_state_publisher import SystemStatePublisher
@@ -112,7 +115,6 @@ class OrchestratorNode(Node):
     # ==================================================
 
     def _check_condition_loop(self):
-
         # BOOT → INIT
         if self.phase == SystemPhase.BOOT:
             self.set_phase(SystemPhase.SYSTEM_INITIALIZING)
@@ -131,6 +133,11 @@ class OrchestratorNode(Node):
         elif self.phase == SystemPhase.SLAM_PREPARING:
             if self.slam_controller.is_ready():
                 self.set_phase(SystemPhase.SLAM_ACTIVE)
+
+        # elif self.phase == SystemPhase.MAP_SAVING:
+        #     if self.slam_controller.map_saved():
+        #         self.set_phase(SystemPhase.MAP_SAVED)
+        
 
     # ==================================================
     # System State Publishing
@@ -170,18 +177,18 @@ class OrchestratorNode(Node):
     def handle_save_map(self, request, response):
 
         if self.phase != SystemPhase.SLAM_ACTIVE:
-            response.accepted = False
+            response.success = False
             response.message = "SLAM not active"
             return response
 
         map_name = request.map_name.strip()
         if map_name == "":
-            response.accepted = False
+            response.success = False
             response.message = "Invalid map name"
             return response
 
         if "/" in map_name:
-            response.accepted = False
+            response.success = False
             response.message = "Map name must not contain '/'"
             return response
 
@@ -192,15 +199,16 @@ class OrchestratorNode(Node):
         map_path = os.path.join(self.map_directory, map_file)
         self.slam_controller.save_map_async(map_path)
 
-        response.accepted = True
+        response.success = True
         response.message = f"Saving map {map_name}"
         return response
-    
-    def on_map_saved(self):
+
+    def on_map_save_succeeded(self):
         self.set_phase(SystemPhase.MAP_SAVED)
 
     def on_map_save_failed(self):
         self.set_phase(SystemPhase.SLAM_ACTIVE)
+
 
 # ======================================================
 # Main Entry
