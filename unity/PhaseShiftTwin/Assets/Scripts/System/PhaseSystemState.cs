@@ -71,16 +71,16 @@ namespace System
         }
     }
 
-    public class CheckMapState : PhaseSystemState
+    public class SystemInitState : PhaseSystemState
     {
-        public CheckMapState(ROS2System ros2System) : base(ros2System)
+        public SystemInitState(ROS2System ros2System) : base(ros2System)
         {
-            Phase = SystemPhases.PHASE_CHECK_MAP;
+            Phase = SystemPhases.PHASE_SYSTEM_INITIALIZING;
         }
 
         public override void Enter()
         {
-            StateLoggerUtility.LogState<CheckMapState>();
+            StateLoggerUtility.LogState<SystemInitState>();
         }
 
         public override void Exit()
@@ -92,16 +92,16 @@ namespace System
         }
     }
     
-    public class ConnectingState : PhaseSystemState
+    public class SLAMPrepState : PhaseSystemState
     {
-        public ConnectingState(ROS2System ros2System) : base(ros2System)
+        public SLAMPrepState(ROS2System ros2System) : base(ros2System)
         {
-            Phase = SystemPhases.PHASE_CONNECTING;
+            Phase = SystemPhases.PHASE_SLAM_PREPARING;
         }
 
         public override void Enter()
         {
-            StateLoggerUtility.LogState<ConnectingState>();
+            StateLoggerUtility.LogState<SLAMPrepState>();
             
             // Start 2d scanner to provide /scan topic
             ros2System.ToggleScan(true);
@@ -116,16 +116,16 @@ namespace System
         }
     }
     
-    public class SlamActiveState : PhaseSystemState
+    public class SLAMActiveState : PhaseSystemState
     {
-        public SlamActiveState(ROS2System ros2System) : base(ros2System)
+        public SLAMActiveState(ROS2System ros2System) : base(ros2System)
         {
             Phase = SystemPhases.PHASE_SLAM_ACTIVE;
         }
 
         public override void Enter()
         {
-            StateLoggerUtility.LogState<SlamActiveState>();
+            StateLoggerUtility.LogState<SLAMActiveState>();
             
             // Turn on manual driving
             ros2System.StartManualDriving(true);
@@ -144,11 +144,53 @@ namespace System
         }
     }
     
+    
+    public class SLAMMapSaving : PhaseSystemState
+    {
+        public SLAMMapSaving(ROS2System ros2System) : base(ros2System)
+        {
+            Phase = SystemPhases.PHASE_MAP_SAVING;
+        }
+
+        public override void Enter()
+        {
+            StateLoggerUtility.LogState<SLAMMapSaving>();
+        }
+
+        public override void Exit()
+        {
+        }
+
+        public override void Tick()
+        {
+        }
+    }
+    
     public class MapSavedState : PhaseSystemState
     {
         public MapSavedState(ROS2System ros2System) : base(ros2System)
         {
             Phase = SystemPhases.PHASE_MAP_SAVED;
+        }
+
+        public override void Enter()
+        {
+        }
+
+        public override void Exit()
+        {
+        }
+
+        public override void Tick()
+        {
+        }
+    }
+    
+    public class NAVPrepState : PhaseSystemState
+    {
+        public NAVPrepState(ROS2System ros2System) : base(ros2System)
+        {
+            Phase = SystemPhases.PHASE_NAV_PREPARING;
         }
 
         public override void Enter()
@@ -184,11 +226,11 @@ namespace System
         }
     }
     
-    public class NavigatingState : PhaseSystemState
+    public class NAVExecuteState : PhaseSystemState
     {
-        public NavigatingState(ROS2System ros2System) : base(ros2System)
+        public NAVExecuteState(ROS2System ros2System) : base(ros2System)
         {
-            Phase = SystemPhases.PHASE_NAVIGATING;
+            Phase = SystemPhases.PHASE_NAV_EXECUTING;
         }
 
         public override void Enter()

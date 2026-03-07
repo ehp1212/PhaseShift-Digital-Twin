@@ -19,11 +19,6 @@ class SlamController:
             10
         )
 
-        self._save_map_cli = node.create_client(
-            SaveMap,
-            '/slam_toolbox/save_map'
-        )
-
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, node)
 
@@ -69,19 +64,32 @@ class SlamController:
     # Map Save
     # ----------------------------------------------
 
-    def save_map(self, path: str) -> bool:
+    def save_map_async(self, path: str):
 
-        if not self._save_map_cli.wait_for_service(timeout_sec=3.0):
+        if not self._save_map_cli.wait_for_service(timeout_sec=1.0):
             self.node.get_logger().error("SaveMap service not available.")
-            return False
+            self.node.on_map_save_failed()
+            return
 
         request = SaveMap.Request()
         request.name = path
 
         future = self._save_map_cli.call_async(request)
-        rclpy.spin_until_future_complete(self.node, future)
 
-        return future.result() is not None
+        future.add_done_callback(self._on_save_map_done)
+
+    def _on_save_map_done(self, future):
+
+        result = future.result()
+
+        if result is None:
+            self.node.get_logger().error("Map save failed")
+            self.node.on_map_save_failed()
+            return
+
+        self.node.get_logger().info("Map saved successfully")
+
+        self.node.on_map_saved()
 
     # ----------------------------------------------
 

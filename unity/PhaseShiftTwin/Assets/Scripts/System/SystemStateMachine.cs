@@ -8,13 +8,15 @@ namespace System
         public const byte PHASE_INIT = 255; // Unity only state before receiving any state from ros2
         
         public const byte PHASE_BOOT = 0;
-        public const byte PHASE_CHECK_MAP = 1;
-        public const byte PHASE_CONNECTING = 2;
+        public const byte PHASE_SYSTEM_INITIALIZING = 1;
+        public const byte PHASE_SLAM_PREPARING = 2;
         public const byte PHASE_SLAM_ACTIVE = 3;
-        public const byte PHASE_MAP_SAVED = 4;
-        public const byte PHASE_NAV_READY = 5;
-        public const byte PHASE_NAVIGATING = 6;
-        public const byte PHASE_ERROR = 7;
+        public const byte PHASE_MAP_SAVING = 4;
+        public const byte PHASE_MAP_SAVED = 5;
+        public const byte PHASE_NAV_PREPARING = 6;
+        public const byte PHASE_NAV_READY = 7;
+        public const byte PHASE_NAV_EXECUTING = 8;
+        public const byte PHASE_ERROR = 9;
     }
     
     public class SystemStateMachine
@@ -28,13 +30,18 @@ namespace System
         {
             // Register states
             states[SystemPhases.PHASE_INIT] = new InitState(ros2System);
+            
             states[SystemPhases.PHASE_BOOT] = new BootState(ros2System);
-            states[SystemPhases.PHASE_CHECK_MAP] = new CheckMapState(ros2System);
-            states[SystemPhases.PHASE_CONNECTING] = new ConnectingState(ros2System);
-            states[SystemPhases.PHASE_SLAM_ACTIVE] = new SlamActiveState(ros2System);
+            states[SystemPhases.PHASE_SYSTEM_INITIALIZING] = new SystemInitState(ros2System);
+            
+            states[SystemPhases.PHASE_SLAM_PREPARING] = new SLAMPrepState(ros2System);
+            states[SystemPhases.PHASE_SLAM_ACTIVE] = new SLAMActiveState(ros2System);
+            states[SystemPhases.PHASE_MAP_SAVING] = new SLAMMapSaving(ros2System);
             states[SystemPhases.PHASE_MAP_SAVED] = new MapSavedState(ros2System);
+            
+            states[SystemPhases.PHASE_NAV_PREPARING] = new NAVPrepState(ros2System);
             states[SystemPhases.PHASE_NAV_READY] = new NavReadyState(ros2System);
-            states[SystemPhases.PHASE_NAVIGATING] = new NavigatingState(ros2System);
+            states[SystemPhases.PHASE_NAV_EXECUTING] = new NAVExecuteState(ros2System);
             states[SystemPhases.PHASE_ERROR] = new ErrorState(ros2System);
             
             currentState = states[SystemPhases.PHASE_INIT];
