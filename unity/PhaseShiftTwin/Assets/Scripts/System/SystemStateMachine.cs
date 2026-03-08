@@ -23,11 +23,14 @@ namespace System
     {
         private Dictionary<byte, ISystemState> states = new();
         private ISystemState currentState;
-        
+        private readonly ROS2System _ros2System;
+
         public byte Current => currentState?.Phase ?? SystemPhases.PHASE_INIT;
 
         public SystemStateMachine(ROS2System ros2System)
         {
+            _ros2System = ros2System;
+            
             // Register states
             states[SystemPhases.PHASE_INIT] = new InitState(ros2System);
             
@@ -59,6 +62,13 @@ namespace System
                 return; // same state → ignore
 
             currentState?.Exit();
+
+            if (currentState != null)
+            {
+                var previous = currentState.Phase;
+                _ros2System.OnPhaseChanged?.Invoke(previous, newPhase);
+            }
+
             currentState = states[newPhase];
             currentState.Enter();
         }

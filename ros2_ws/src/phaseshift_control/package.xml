@@ -4,7 +4,7 @@
   <name>phaseshift_control</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
-  <maintainer email='eunhyeon1212p@gmail.com'>jimmy</maintainer>
+  <maintainer email="eunhyeon1212p@gmail.com">jimmy</maintainer>
   <license>TODO: License declaration</license>
 
   <depend>rclpy</depend>

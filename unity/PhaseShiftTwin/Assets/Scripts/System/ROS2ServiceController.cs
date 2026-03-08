@@ -32,7 +32,6 @@ namespace System
         {
             try
             {
-                
                 var request = new SaveMap_Request()
                 {
                     Map_name = mapName

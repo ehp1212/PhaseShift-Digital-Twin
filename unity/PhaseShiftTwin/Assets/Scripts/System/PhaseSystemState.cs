@@ -135,7 +135,6 @@ namespace System
         public override void Exit()
         {
             ros2System.ToggleScan(false);
-            
             ros2System.StartManualDriving(false);
             ros2System.EnterSlamPhase(false);
         }
@@ -144,7 +143,6 @@ namespace System
         {
         }
     }
-    
     
     public class SLAMMapSaving : PhaseSystemState
     {
@@ -156,6 +154,7 @@ namespace System
         public override void Enter()
         {
             StateLoggerUtility.LogState<SLAMMapSaving>();
+            ros2System.LogScreenUI("Trying to save map...");
         }
 
         public override void Exit()
@@ -176,10 +175,12 @@ namespace System
 
         public override void Enter()
         {
+            ros2System.LogScreenUI("Completed to save map successfully");
         }
 
         public override void Exit()
         {
+            ros2System.CloseScreenUI();
         }
 
         public override void Tick()
@@ -196,10 +197,16 @@ namespace System
 
         public override void Enter()
         {
+            StateLoggerUtility.LogState<NAVPrepState>();
+            ros2System.LogScreenUI("Trying to load NAV2 in ROS2 side...");
+            
+            // TODO: when to turn off
+            ros2System.ToggleScan(true);
         }
 
         public override void Exit()
         {
+            ros2System.CloseScreenUI();
         }
 
         public override void Tick()
@@ -216,6 +223,7 @@ namespace System
 
         public override void Enter()
         {
+            StateLoggerUtility.LogState<NavReadyState>();
         }
 
         public override void Exit()

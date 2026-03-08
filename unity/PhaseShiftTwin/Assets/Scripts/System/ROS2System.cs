@@ -30,9 +30,11 @@ namespace System
         
         private ScanRaycastSensor ScanRaycastSensor { get; set; }
         private SLAMGeometryMapVisualizer SLAMGeometryMapVisualizer { get; set; }
-
         public ROS2ServiceController ROS2ServiceController { get; set; }
 
+        public delegate void OnPhaseChangedHandler(byte previousPhase, byte newPhase);
+        public OnPhaseChangedHandler OnPhaseChanged;
+        
         protected override void Awake()
         {
             base.Awake();

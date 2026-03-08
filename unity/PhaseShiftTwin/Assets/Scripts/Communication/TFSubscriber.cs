@@ -19,6 +19,7 @@ namespace Communication
         private ROS2System _ros2System;
         private ROS2Node _node;
         private ISubscription<TFMessage> _tfSub;
+        private bool _active;
         
         public Vector3 Translation { get; set; }
         public Quaternion Rotation { get; set; }
@@ -29,6 +30,21 @@ namespace Communication
         {
             _ros2System = ROS2System.Instance;
             _ros2System.OnInitialize.AddListener(SetUp);
+            _ros2System.OnPhaseChanged += Activate;
+        }
+
+        private void Activate(byte previousPhase, byte newPhase)
+        {
+            if (newPhase != SystemPhases.PHASE_SLAM_ACTIVE)
+            {
+                if (_active) 
+                    Debug.Log($"TOGGLE TF Transform Applier: false");        
+                _active = false;
+                return;
+            }
+
+            Debug.Log($"TOGGLE TF Transform Applier: true");
+            _active = true;
         }
 
         private void SetUp()
@@ -39,6 +55,8 @@ namespace Communication
 
         private void ProcessTF(TFMessage msg)
         {
+            if (!_active) return;
+            
             foreach (var transformStamped in msg.Transforms)
             {
                 if (transformStamped.Header.Frame_id != parentFrame || transformStamped.Child_frame_id != childFrame) continue;

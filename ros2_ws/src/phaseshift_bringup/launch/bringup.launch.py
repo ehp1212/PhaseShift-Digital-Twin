@@ -26,16 +26,6 @@ def generate_launch_description():
         }]
     )
     
-    # ==========================
-    # Odometry (always active)
-    # ==========================
-    # odom_node = Node(
-    #     package='phaseshift_control',
-    #     executable='diff_drive_integrator_node',
-    #     name='diff_drive_integrator_node',
-    #     output='screen'
-    # )
-
     odom_node = Node(
         package='phaseshift_control',
         executable='odometry_node',
@@ -57,7 +47,7 @@ def generate_launch_description():
     )
 
     # ==========================
-    # Nav2 (official bringup)
+    # Nav2 
     # ==========================
     nav2_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -70,7 +60,26 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': 'false',
             'autostart': 'false',
-            # 'params_file': os.path.join(pkg_bringup, 'config', 'nav2.yaml')
+            'params_file': 
+            # os.path.join(pkg_bringup, 'config', 'nav2.yaml'
+            os.path.join(pkg_bringup, 'config', 'nav2.yaml')
+        }.items()
+    )
+
+    nav2_local_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('nav2_bringup'),
+                'launch',
+                'localization_launch.py'
+            )
+        ),
+        launch_arguments={
+            'use_sim_time': 'false',
+            'autostart': 'false',
+            'params_file': 
+            os.path.join(pkg_bringup, 'config', 'nav2.yaml'),
+            'map': ''  # dummy
         }.items()
     )
 
@@ -88,6 +97,7 @@ def generate_launch_description():
         robot_state_publisher,
         odom_node,
         slam_node,
-        # nav2_launch,
+        nav2_launch,
+        nav2_local_launch,
         orchestrator
     ])

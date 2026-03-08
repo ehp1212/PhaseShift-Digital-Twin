@@ -12,7 +12,10 @@ from phaseshift_interfaces.srv import SetGoal
 from phaseshift_interfaces.srv import NavigateToGoal
 
 from phaseshift_control.slam_controller import SlamController
+from phaseshift_control.nav2_controller import Nav2Controller
+
 from .system_state_publisher import SystemStatePublisher
+from .map_manager import MapManager
 
 class SystemPhase(Enum):
     BOOT = 0
@@ -33,14 +36,16 @@ class OrchestratorNode(Node):
 
     def __init__(self):
         super().__init__('orchestrator')
-        self.map_directory = "/home/jimmy/maps"
-        os.makedirs(self.map_directory, exist_ok=True)
-        self.get_logger().info(f"Map directory: {self.map_directory}")
         self.get_logger().info("Orchestrator started")
 
         # Controllers
         self._system_publisher = SystemStatePublisher(self)
         self.slam_controller = SlamController(self)
+        self.nav2_controller = Nav2Controller(self)
+
+        # Map Manager
+        self.map_manager = MapManager()
+        self._map_yaml = None
 
         # Odom service
         self.odom_client = self.create_client(
@@ -57,8 +62,6 @@ class OrchestratorNode(Node):
 
         # Internal state
         self.phase = SystemPhase.BOOT
-        self._has_map = False
-        self._map_path = "/home/jimmy/maps/map.yaml"
 
         # Publish initial state
         self.publish_state(self.phase)
@@ -67,9 +70,9 @@ class OrchestratorNode(Node):
         self.create_timer(0.5, self._check_condition_loop)
 
     # ==================================================
-    # Phase Management
+    # Phase Management (Behaviour)
     # ==================================================
-
+    
     def set_phase(self, new_phase: SystemPhase):
 
         if self.phase == new_phase:
@@ -91,9 +94,12 @@ class OrchestratorNode(Node):
 
         elif phase == SystemPhase.SYSTEM_INITIALIZING:
             self.get_logger().info("[Init]Checking map availability...")
+            self._has_map = self.map_manager.has_map()
+            self.activate_odom()
 
         elif phase == SystemPhase.SLAM_PREPARING:
             self.get_logger().info("[SLAM]Waiting for SLAM readiness...")
+            self._map_yaml = None
 
         elif phase == SystemPhase.SLAM_ACTIVE:
             self.get_logger().info("[SLAM]SLAM is ACTIVE")
@@ -104,6 +110,10 @@ class OrchestratorNode(Node):
         elif phase == SystemPhase.MAP_SAVED:
             self.get_logger().info("[SLAM]Map saved")
 
+        elif phase == SystemPhase.NAV_PREPARING:
+            map_yaml = self.map_manager.get_latest_map()
+            self.nav2_controller.activate_nav2(map_yaml)
+
         elif phase == SystemPhase.ERROR:
             self.get_logger().error("System entered ERROR state")
 
@@ -111,33 +121,54 @@ class OrchestratorNode(Node):
         pass
 
     # ==================================================
-    # Hybrid Condition Loop (Watcher Only)
+    # Condition Loop (Condition / Set Phase)
     # ==================================================
 
     def _check_condition_loop(self):
         # BOOT → INIT
         if self.phase == SystemPhase.BOOT:
             self.set_phase(SystemPhase.SYSTEM_INITIALIZING)
+            return
 
         # INIT → CONNECTING or NAV_READY
-        elif self.phase == SystemPhase.SYSTEM_INITIALIZING:
-            self._has_map = os.path.exists(self._map_path)
+        if self.phase == SystemPhase.SYSTEM_INITIALIZING:
+            # self._has_map = self.map_manager.has_map()
+            # self.activate_odom()
 
             if self._has_map:
                 self.set_phase(SystemPhase.NAV_PREPARING)
             else:
                 self.set_phase(SystemPhase.SLAM_PREPARING)
-                self.activate_odom()
+            return
 
+        # ==================================================
+        # SLAM
+        # ==================================================
         # CONNECTING → SLAM_ACTIVE
-        elif self.phase == SystemPhase.SLAM_PREPARING:
+        if self.phase == SystemPhase.SLAM_PREPARING:
             if self.slam_controller.is_ready():
                 self.set_phase(SystemPhase.SLAM_ACTIVE)
-
-        # elif self.phase == SystemPhase.MAP_SAVING:
-        #     if self.slam_controller.map_saved():
-        #         self.set_phase(SystemPhase.MAP_SAVED)
+            return
         
+        # MAP_SAVED -> SYSTEM_INITIALIZING
+        if self.phase == SystemPhase.MAP_SAVED:
+            self.set_phase(SystemPhase.SYSTEM_INITIALIZING)
+            return
+        
+        # ==================================================
+        # NAV2
+        # ==================================================
+
+        if self.phase == SystemPhase.NAV_PREPARING:
+            # Nav2 startup
+            self.get_logger().info("============================================================================")
+        
+            # nav2 configure and activate
+            if self.nav2_controller.is_ready():
+                self.set_phase(SystemPhase.NAV_READY)
+
+            return
+
 
     # ==================================================
     # System State Publishing
@@ -145,7 +176,6 @@ class OrchestratorNode(Node):
 
     def publish_state(self, phase: SystemPhase):
         self._system_publisher.publish(phase.value)
-
 
     # ==================================================
     # Odom State Publishing
@@ -163,13 +193,6 @@ class OrchestratorNode(Node):
         req = ChangeState.Request()
         req.transition.id = Transition.TRANSITION_DEACTIVATE
         self.odom_client.call_async(req)
-
-    # def change_state(self, transition_id):
-    #     req = ChangeState.Request()
-    #     req.transition.id = transition_id
-    #     future = self.odom_client.call_async(req)
-    #     rclpy.spin_until_future_complete(self, future)
-    #     return future.result()
 
     # ==================================================
     # System Service
