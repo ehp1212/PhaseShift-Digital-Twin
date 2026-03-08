@@ -34,19 +34,6 @@ def generate_launch_description():
     )
 
     # ==========================
-    # SLAM (Lifecycle node)
-    # ==========================
-    slam_node = Node(
-        package='slam_toolbox',
-        executable='sync_slam_toolbox_node',
-        name='slam_toolbox',
-        output='screen',
-        parameters=[
-            os.path.join(pkg_bringup, 'config', 'slam.yaml'),
-        ]
-    )
-
-    # ==========================
     # Nav2 
     # ==========================
     nav2_launch = IncludeLaunchDescription(
@@ -96,7 +83,6 @@ def generate_launch_description():
     return LaunchDescription([
         robot_state_publisher,
         odom_node,
-        slam_node,
         nav2_launch,
         nav2_local_launch,
         orchestrator

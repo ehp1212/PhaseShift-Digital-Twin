@@ -6,6 +6,7 @@ from enum import Enum
 
 from lifecycle_msgs.srv import ChangeState
 from lifecycle_msgs.msg import Transition
+from geometry_msgs.msg import PoseWithCovarianceStamped
 
 from phaseshift_interfaces.srv import SaveMap
 from phaseshift_interfaces.srv import SetGoal
@@ -63,6 +64,16 @@ class OrchestratorNode(Node):
         # Internal state
         self.phase = SystemPhase.BOOT
 
+        self.localization_active = False
+        self.initial_pose_sent = False
+
+        # initial pose publisher
+        self.initial_pose_pub = self.create_publisher(
+            PoseWithCovarianceStamped,
+            "/initialpose",
+            10
+        )
+
         # Publish initial state
         self.publish_state(self.phase)
 
@@ -99,6 +110,9 @@ class OrchestratorNode(Node):
 
         elif phase == SystemPhase.SLAM_PREPARING:
             self.get_logger().info("[SLAM]Waiting for SLAM readiness...")
+            if not self.slam_controller.is_running():
+                self.slam_controller.start_slam()
+            
             self._map_yaml = None
 
         elif phase == SystemPhase.SLAM_ACTIVE:
@@ -111,8 +125,9 @@ class OrchestratorNode(Node):
             self.get_logger().info("[SLAM]Map saved")
 
         elif phase == SystemPhase.NAV_PREPARING:
-            map_yaml = self.map_manager.get_latest_map()
-            self.nav2_controller.activate_nav2(map_yaml)
+            # map_yaml = self.map_manager.get_latest_map()
+            # self.nav2_controller.activate_nav2(map_yaml)
+            pass
 
         elif phase == SystemPhase.ERROR:
             self.get_logger().error("System entered ERROR state")
@@ -152,6 +167,7 @@ class OrchestratorNode(Node):
         
         # MAP_SAVED -> SYSTEM_INITIALIZING
         if self.phase == SystemPhase.MAP_SAVED:
+            self.slam_controller.stop_slam()
             self.set_phase(SystemPhase.SYSTEM_INITIALIZING)
             return
         
@@ -160,9 +176,52 @@ class OrchestratorNode(Node):
         # ==================================================
 
         if self.phase == SystemPhase.NAV_PREPARING:
-            # Nav2 startup
-            self.get_logger().info("============================================================================")
-        
+            if self.nav2_controller.is_busy():
+                return
+            
+            # Configure
+            if not self.nav2_controller.is_configured():
+                self.nav2_controller.configure_nav2()
+                return
+            
+            # 2 activate map_server + amcl
+            if not self.localization_active:
+                self.nav2_controller.activate_localization()
+                self.localization_active = True
+                return
+
+            # 3 load map
+            if not self.nav2_controller.is_map_loaded():
+                map_yaml = self.map_manager.get_latest_map()
+                self.nav2_controller.load_map_nav2(map_yaml)
+                return
+
+            # 4 send initial pose
+            if not self.initial_pose_sent:
+                self.publish_initial_pose()
+                self.initial_pose_sent = True
+                return
+            
+            # 5 activate rest of nav2
+            if not self.nav2_controller.is_activated():
+                self.nav2_controller.activate_navigation()
+                return
+            
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")
+
             # nav2 configure and activate
             if self.nav2_controller.is_ready():
                 self.set_phase(SystemPhase.NAV_READY)
@@ -232,6 +291,24 @@ class OrchestratorNode(Node):
     def on_map_save_failed(self):
         self.set_phase(SystemPhase.SLAM_ACTIVE)
 
+    # ======================================================
+    # Utility
+    # ======================================================
+
+    def publish_initial_pose(self):
+
+        msg = PoseWithCovarianceStamped()
+
+        msg.header.frame_id = "map"
+        msg.header.stamp = self.get_clock().now().to_msg()
+
+        msg.pose.pose.position.x = 0.0
+        msg.pose.pose.position.y = 0.0
+        msg.pose.pose.orientation.w = 1.0
+
+        self.initial_pose_pub.publish(msg)
+
+        self.get_logger().info("[Nav2] Initial pose published")
 
 # ======================================================
 # Main Entry

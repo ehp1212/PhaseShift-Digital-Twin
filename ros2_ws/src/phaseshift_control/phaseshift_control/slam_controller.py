@@ -1,6 +1,10 @@
+import subprocess
+import os
+import signal
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
+from ament_index_python.packages import get_package_share_directory
 
 from nav_msgs.msg import OccupancyGrid
 from slam_toolbox.srv import SaveMap
@@ -11,6 +15,15 @@ class SlamController:
 
     def __init__(self, node: Node):
         self.node = node
+
+        self._slam_process = None
+        pkg_share = get_package_share_directory("phaseshift_control")
+
+        self._slam_yaml = os.path.join(
+            pkg_share,
+            "config",
+            "slam.yaml"
+        )
 
         self._map_received = False
         self.is_map_saved = False
@@ -28,6 +41,45 @@ class SlamController:
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, node)
+
+    # ----------------------------------------------
+    # Lifecycle
+    # ----------------------------------------------
+    def start_slam(self):
+        if self._slam_process is not None:
+            self.node.get_logger().warn("SLAM is already running")
+            return
+        
+        self.node.get_logger().info("[SLAM] starting slam_toolbox")
+
+        self._slam_process = subprocess.Popen([
+            "ros2",
+            "run",
+            "slam_toolbox",
+            "sync_slam_toolbox_node",
+            "--ros-args",
+            "--params-file",
+            self._slam_yaml
+        ])
+
+        self._map_received = False
+        self.is_map_saved = False
+
+    def stop_slam(self):
+        if self._slam_process is not None:
+            self.node.get_logger().warn("SLAM is not running")
+            return
+        
+        self.node.get_logger().info("[SLAM] stopping slam_toolbox")
+
+        try:
+            os.kill(self._slam_process.pid, signal.SIGINT)
+            self._slam_process.wait(timeout=5)
+        except Exception as e:
+            self.node.get_logger().error(f"[SLAM] failed to stop process: {e}")
+            self._slam_process.kill()
+        
+        self._slam_process = None
 
     # ----------------------------------------------
     # Readiness
@@ -60,12 +112,18 @@ class SlamController:
         except:
             return False
 
-    # Slam Ready Condition
-    # receive laser scan 
-    # odom -> bast_footprint tf
-    # after pose graph initialized
+    def is_running(self) -> bool:
+        if self._slam_process is None:
+            return False
+        return self._slam_process.poll() is None
+
     def is_ready(self) -> bool:
-        return self.is_map_active() and self.is_map_tf_active() and self.is_odom_tf_active()
+        return (
+            self.is_running()
+            and self.is_map_active()
+            and self.is_map_tf_active()
+            and self.is_odom_tf_active()
+        )
     
     def map_saved(self) -> bool:
         return self.is_map_saved

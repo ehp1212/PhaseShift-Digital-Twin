@@ -22,6 +22,15 @@ class Nav2Controller:
 
     DEACTIVATE_ORDER = list(reversed(CONFIGURE_ORDER))
 
+    def is_configured(self) -> bool:
+        return self._configured
+    
+    def is_activated(self) -> bool:
+        return self._activated
+    
+    def is_map_loaded(self) -> bool:
+        return self._map_loaded
+
     def __init__(self, node):
         self.node = node
 
@@ -64,7 +73,8 @@ class Nav2Controller:
         self._on_failure: Optional[Callable[[str], None]] = None
 
         self._configured = False
-        self._actiavated = False
+        self._activated = False
+        self._map_loaded = False
 
         # single-thread executor safe polling timer
         self._timer = self.node.create_timer(0.1, self._poll)
@@ -76,33 +86,25 @@ class Nav2Controller:
     def is_ready(self):
         return (
             self._configured
-            and self._actiavated
+            and self._activated
         )
 
-    def activate_nav2(self, map_yaml: str):
-        self.node.get_logger().info("[Nav2] Activating Nav2 stack")
-
-        def on_activate_success():
-            self.node.get_logger().info("[Nav2] ACTIVE")
-            self.load_map(map_yaml, on_success=on_map_loaded)
-
-        def on_map_loaded():
-            self.node.get_logger().info("[Nav2] Map loaded")
-            self._actiavated = True
-
+    def configure_nav2(self):
         def on_configure_success():
             self.node.get_logger().info("[Nav2] Configure complete")
             self._configured = True
 
-            self.activate(
-                on_success=on_activate_success,
-                on_failure=lambda e: self.node.get_logger().error(f"Activated failed: {e}")
-            )
-        
+        self.node.get_logger().info("//////////////////////////////////////")
+        self.node.get_logger().info("//////////////////////////////////////")
+        self.node.get_logger().info("//////////////////////////////////////")
+        self.node.get_logger().info("//////////////////////////////////////")
+        self.node.get_logger().info("//////////////////////////////////////")
+
+
         self.configure(
             on_success=on_configure_success,
             on_failure=lambda e: self.node.get_logger().error(f"Configure failed: {e}")
-            )
+        )
 
     def deactivate_nav2(self):
         self.node.get_logger().info("[Nav2] deactivating Nav2 stack")
@@ -110,7 +112,7 @@ class Nav2Controller:
         def on_cleanup_success():
             self.node.get_logger().info("[Nav2] Cleanup complete")
             self._configured = False
-            self._actiavated = False
+            self._activated = False
 
         def on_cleanup_failure(err: str):
             self.node.get_logger().error(f"[Nav2] Cleanup failed: {err}")
@@ -131,6 +133,54 @@ class Nav2Controller:
         self.deactivate(
             on_success=on_deactivate_success,
             on_failure=on_deactivate_failure
+        )
+
+
+    def load_map_nav2(self, map_yaml):
+
+        def on_success():
+            self.node.get_logger().info("[Nav2] map loaded")
+            self._map_loaded = True
+
+        self.load_map(
+            map_yaml_path=map_yaml,
+            on_success=on_success,
+            on_failure=lambda e: self.node.get_logger().error(e)
+        )
+
+
+    def activate_localization(self):
+
+        def on_success():
+            self.node.get_logger().info("[Nav2] map_server + amcl active")
+
+        self._start_transition_operation(
+            op_name="activate_localization",
+            node_order=["map_server", "amcl"],
+            transition_id=self.ACTIVATE_ID,
+            expected_state="active",
+            on_success=on_success,
+            on_failure=lambda e: self.node.get_logger().error(e)
+        )
+
+    def activate_navigation(self):
+
+        def on_success():
+            self.node.get_logger().info("[Nav2] navigation stack active")
+            self._activated = True
+
+        self._start_transition_operation(
+            op_name="activate_navigation",
+            node_order=[
+                "planner_server",
+                "controller_server",
+                "behavior_server",
+                "bt_navigator",
+            ],
+            transition_id=self.ACTIVATE_ID,
+            expected_state="active",
+            on_success=on_success,
+            on_failure=lambda e: self.node.get_logger().error(e)
         )
 
     def configure(
