@@ -74,6 +74,18 @@ class OrchestratorNode(Node):
             self.handle_save_map
         )
 
+        self.set_goal_srv = self.create_service(
+            SetGoal,
+            '/system/set_goal',
+            self.handle_set_goal
+        )
+
+        self.navigate_srv = self.create_service(
+            NavigateToGoal,
+            '/system/navigate',
+            self.handle_navigate
+        )
+
         # Internal state
         self.phase = SystemPhase.BOOT
 
@@ -223,17 +235,27 @@ class OrchestratorNode(Node):
                 self.nav2_controller.activate_navigation()
                 return
             
-            self.get_logger().info(f"READYREADY")            
+            self.get_logger().info(f"==========")            
+            self.get_logger().info(f"==========")            
+            self.get_logger().info(f"==========")            
             self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"==========")            
+            self.get_logger().info(f"==========")            
+            self.get_logger().info(f"==========")            
 
             # nav2 configure and activate
             if self.nav2_controller.is_ready():
                 self.set_phase(SystemPhase.NAV_READY)
 
             return
+
+        if self.phase == SystemPhase.NAV_EXECUTING:
+            result = self.nav2_controller.update_navigation()
+
+            if result == "SUCCEEDED":
+                self.set_phase(SystemPhase.NAV_READY)
+            elif result == "FAILED":
+                self.set_phase(SystemPhase.ERROR)
 
 
     # ==================================================
@@ -320,6 +342,30 @@ class OrchestratorNode(Node):
 
     def on_map_save_failed(self):
         self.set_phase(SystemPhase.SLAM_ACTIVE)
+
+
+    def handle_set_goal(self, request, response):
+        if self.phase != SystemPhase.NAV_READY:
+            response.success = False
+            response.message = "Only available in NAV2_READY phase"
+            return response
+        
+        self.nav2_controller.set_goal(
+            x=request.x,
+            y=request.y,
+            yaw=request.yaw,
+            frame_id=request.frame_id
+        )
+
+        self.set_phase(SystemPhase.NAV_EXECUTING)
+
+        response.success = True
+        response.message = "Goal stored"
+        return response
+
+    def handle_navigate(self, request, response):
+        pass
+
 
     # ======================================================
     # Utility

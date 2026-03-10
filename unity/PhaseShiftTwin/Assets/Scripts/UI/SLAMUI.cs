@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -13,10 +14,15 @@ namespace UI
         private void Start()
         {
             _ros2System = ROS2System.Instance;
-            _saveMapButton.onClick.AddListener(SaveMap);
+            _saveMapButton.onClick.AddListener(OnSaveMapClicked);
         }
 
-        private async void SaveMap()
+        private void OnSaveMapClicked()
+        {
+            _ = SaveMap();
+        }
+
+        private async Task SaveMap()
         {
             const string mapName = "default";
             await _ros2System.ROS2ServiceController.SaveMap(mapName);

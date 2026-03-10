@@ -46,5 +46,27 @@ namespace System
                 throw;
             }
         }
+
+        public async Task SendGoal(Vector3 worldPoint)
+        {
+            try
+            {
+                var request = new SetGoal_Request()
+                {
+                    Frame_id = "map",
+                    X = worldPoint.z,
+                    Y = -worldPoint.x,
+                    Yaw = 0f
+                };
+                
+                var response = await  _setGoalClient.CallAsync(request);
+                Debug.Log($"[Response : {response.Success}]  {response.Message}]");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"SendGoal failed: {e.Message}");
+                throw;
+            }
+        }
     }
 }
