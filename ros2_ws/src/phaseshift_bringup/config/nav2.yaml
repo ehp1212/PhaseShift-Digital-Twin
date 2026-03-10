@@ -54,46 +54,233 @@ bt_navigator:
 
       - nav2_remove_passed_goals_action_bt_node
 
+# =========================
+# Not working
+# =========================
+# controller_server:
+#   ros__parameters:
+#     use_sim_time: false
+#     robot_base_frame: base_footprint
+#     controller_frequency: 20.0
+
+#     progress_checker_plugins: ["progress_checker"]
+#     goal_checker_plugins: ["goal_checker"]
+
+#     progress_checker:
+#       plugin: "nav2_controller::SimpleProgressChecker"
+#       required_movement_radius: 0.05
+#       movement_time_allowance: 30.0
+
+#     goal_checker:
+#       plugin: "nav2_controller::SimpleGoalChecker"
+#       xy_goal_tolerance: 0.25
+#       yaw_goal_tolerance: 0.5
+#       stateful: true
+
+#     controller_plugins: ["FollowPath"]
+
+#     FollowPath:
+#       plugin: "dwb_core::DWBLocalPlanner"
+#       debug_trajectory_details: true
+
+#       min_vel_x: 0.0
+#       max_vel_x: 0.26
+#       max_vel_theta: 1.0
+
+#       acc_lim_x: 2.5
+#       acc_lim_theta: 3.2
+#       decel_lim_x: -2.5
+
+#       vx_samples: 20
+#       vtheta_samples: 40
+#       sim_time: 1.0
+
+#       critics:
+#         - Oscillation
+#         - BaseObstacle
+#         - PathAlign
+#         - GoalAlign
+#         - PathDist
+#         - GoalDist
+#         - RotateToGoal
+
+#       BaseObstacle.scale: 0.02
+#       PathAlign.scale: 2.0
+#       GoalAlign.scale: 2.0
+#       PathDist.scale: 24.0
+#       GoalDist.scale: 18.0
+#       RotateToGoal.scale: 1.0
+#       RotateToGoal.slowing_factor: 5.0
+#       RotateToGoal.lookahead_time: -1.0
+
+
+
+
+# =========================
+# Safety
+# =========================
+# controller_server:
+#   ros__parameters:
+#     use_sim_time: false
+#     controller_frequency: 20.0
+#     robot_base_frame: base_footprint
+
+#     min_x_velocity_threshold: 0.001
+#     min_y_velocity_threshold: 0.001
+#     min_theta_velocity_threshold: 0.001
+
+#     progress_checker_plugins: ["progress_checker"]
+#     goal_checker_plugins: ["goal_checker"]
+#     controller_plugins: ["FollowPath"]
+
+#     progress_checker:
+#       plugin: "nav2_controller::SimpleProgressChecker"
+#       required_movement_radius: 0.05
+#       movement_time_allowance: 30.0
+
+#     goal_checker:
+#       plugin: "nav2_controller::SimpleGoalChecker"
+#       xy_goal_tolerance: 0.25
+#       yaw_goal_tolerance: 0.4
+#       stateful: true
+
+#     FollowPath:
+#       plugin: "dwb_core::DWBLocalPlanner"
+
+#       debug_trajectory_details: false
+#       publish_local_plan: true
+#       publish_evaluation: false
+
+#       # velocity limits
+#       min_vel_x: 0.0
+#       max_vel_x: 0.35
+#       min_vel_y: 0.0
+#       max_vel_y: 0.0
+#       max_vel_theta: 1.2
+
+#       min_speed_xy: 0.0
+#       max_speed_xy: 0.35
+#       min_speed_theta: 0.0
+
+#       # acceleration
+#       acc_lim_x: 2.5
+#       acc_lim_y: 0.0
+#       acc_lim_theta: 3.2
+
+#       decel_lim_x: -2.5
+#       decel_lim_theta: -3.2
+
+#       # trajectory sampling
+#       vx_samples: 20
+#       vy_samples: 1
+#       vtheta_samples: 20
+
+#       sim_time: 1.0
+#       linear_granularity: 0.05
+#       angular_granularity: 0.025
+
+#       # critics
+#       critics:
+#         - Oscillation
+#         - BaseObstacle
+#         - PathDist
+#         - GoalDist
+#         - PathAlign
+#         - GoalAlign
+#         - RotateToGoal
+
+#       BaseObstacle.scale: 0.02
+#       PathDist.scale: 16.0
+#       GoalDist.scale: 12.0
+
+#       PathAlign.scale: 1.0
+#       GoalAlign.scale: 1.0
+
+#       RotateToGoal.scale: 0.2
+#       RotateToGoal.slowing_factor: 5.0
+#       RotateToGoal.lookahead_time: -1.0
 
 controller_server:
   ros__parameters:
     use_sim_time: false
+    robot_base_frame: base_footprint
     controller_frequency: 20.0
+
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
     controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.05
+      movement_time_allowance: 30.0
+
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.5
+      stateful: true
 
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: false
+      debug_trajectory_details: true
+      publish_local_plan: true
+      publish_evaluation: true
+      publish_trajectories: true
 
       min_vel_x: 0.0
       max_vel_x: 0.26
+      min_vel_y: 0.0
+      max_vel_y: 0.0
       max_vel_theta: 1.0
 
+      min_speed_xy: 0.0
+      max_speed_xy: 0.26
+      min_speed_theta: 0.0
+
       acc_lim_x: 2.5
+      acc_lim_y: 0.0
       acc_lim_theta: 3.2
       decel_lim_x: -2.5
+      decel_lim_y: 0.0
+      decel_lim_theta: -3.2
 
       vx_samples: 20
-      vtheta_samples: 40
-      sim_time: 1.7
+      vy_samples: 1
+      vtheta_samples: 20
+      sim_time: 1.0
+
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+
+      trans_stopped_velocity: 0.1
+      short_circuit_trajectory_evaluation: true
+      stateful: true
 
       critics:
-        - RotateToGoal
         - Oscillation
         - BaseObstacle
-        - GoalAlign
-        - PathAlign
         - PathDist
         - GoalDist
+        - PathAlign
+        - GoalAlign
+        - RotateToGoal
 
       BaseObstacle.scale: 0.02
-      PathAlign.scale: 32.0
-      GoalAlign.scale: 24.0
-      PathDist.scale: 32.0
-      GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
+      PathDist.scale: 16.0
+      GoalDist.scale: 12.0
+      PathAlign.scale: 1.0
+      GoalAlign.scale: 1.0
+      RotateToGoal.scale: 0.2
+      PathAlign.forward_point_distance: 0.05
+      GoalAlign.forward_point_distance: 0.05
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
+
 
 planner_server:
   ros__parameters:
@@ -151,7 +338,7 @@ local_costmap:
       height: 5
       resolution: 0.05
 
-      robot_radius: 0.22
+      robot_radius: 0.2
 
       plugins:
         - obstacle_layer
@@ -161,12 +348,22 @@ local_costmap:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         observation_sources: scan
 
+        # scan:
+        #   topic: scan
+        #   max_obstacle_height: 2.0
+        #   clearing: true
+        #   marking: true
+        #   data_type: "LaserScan"
+
         scan:
-          topic: scan
-          max_obstacle_height: 2.0
-          clearing: true
-          marking: true
+          topic: /scan
           data_type: "LaserScan"
+          marking: true
+          clearing: true
+          inf_is_valid: true
+          obstacle_max_range: 4.0
+          raytrace_max_range: 4.5
+          max_obstacle_height: 2.0
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -185,7 +382,7 @@ global_costmap:
 
       resolution: 0.05
 
-      robot_radius: 0.22
+      robot_radius: 0.2
 
       plugins:
         - static_layer

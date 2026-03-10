@@ -52,15 +52,13 @@ class OdometryLifecycleNode(LifecycleNode):
         
         self.cmd_sub = self.create_subscription(
             Twist,
-            '/cmd_vel',
+            '/cmd_vel_nav',
             self.cmd_callback,
             10
         )
+
         self.last_time = self.get_clock().now()
         self.last_cmd_time = self.get_clock().now()
-
-        # self.timer = self.create_timer(0.02, self.update)
-        # self.timer.cancel()
 
         return TransitionCallbackReturn.SUCCESS
 
@@ -118,9 +116,6 @@ class OdometryLifecycleNode(LifecycleNode):
     # UPDATE LOOP
     # ==============================        
     def update(self):
-        if not self.odom_pub.is_activated:
-            return
-
         current_time = self.get_clock().now()
         dt = (current_time - self.last_time).nanoseconds * 1e-9
         self.last_time = current_time

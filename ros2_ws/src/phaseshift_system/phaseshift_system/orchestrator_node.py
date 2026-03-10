@@ -4,8 +4,8 @@ import rclpy
 from rclpy.node import Node
 from enum import Enum
 
-from lifecycle_msgs.srv import ChangeState
-from lifecycle_msgs.msg import Transition
+from lifecycle_msgs.srv import ChangeState, GetState
+from lifecycle_msgs.msg import Transition, TransitionEvent
 from geometry_msgs.msg import PoseWithCovarianceStamped
 
 from phaseshift_interfaces.srv import SaveMap
@@ -54,6 +54,19 @@ class OrchestratorNode(Node):
             '/odometry_node/change_state'
         )
 
+        self.odom_state_client = self.create_client(
+            GetState,
+            '/odometry_node/get_state'
+        )
+
+        # Check odom transition 
+        self.create_subscription(
+            TransitionEvent,
+            '/odometry_node/transition_event',
+            self._on_odom_activated,
+            10
+        )
+
         # Services
         self.save_map_srv = self.create_service(
             SaveMap,
@@ -66,6 +79,7 @@ class OrchestratorNode(Node):
 
         self.localization_active = False
         self.initial_pose_sent = False
+        self.is_odom_active = False
 
         # initial pose publisher
         self.initial_pose_pub = self.create_publisher(
@@ -79,7 +93,8 @@ class OrchestratorNode(Node):
 
         # Condition loop (Hybrid: condition watcher only)
         self.create_timer(0.5, self._check_condition_loop)
-
+    
+        
     # ==================================================
     # Phase Management (Behaviour)
     # ==================================================
@@ -125,8 +140,6 @@ class OrchestratorNode(Node):
             self.get_logger().info("[SLAM]Map saved")
 
         elif phase == SystemPhase.NAV_PREPARING:
-            # map_yaml = self.map_manager.get_latest_map()
-            # self.nav2_controller.activate_nav2(map_yaml)
             pass
 
         elif phase == SystemPhase.ERROR:
@@ -147,14 +160,17 @@ class OrchestratorNode(Node):
 
         # INIT → CONNECTING or NAV_READY
         if self.phase == SystemPhase.SYSTEM_INITIALIZING:
-            # self._has_map = self.map_manager.has_map()
-            # self.activate_odom()
+
+            if not self.is_odom_active:
+                return
 
             if self._has_map:
+                # self.set_phase(SystemPhase.SLAM_PREPARING)
+
                 self.set_phase(SystemPhase.NAV_PREPARING)
             else:
                 self.set_phase(SystemPhase.SLAM_PREPARING)
-            return
+                return
 
         # ==================================================
         # SLAM
@@ -179,7 +195,7 @@ class OrchestratorNode(Node):
             if self.nav2_controller.is_busy():
                 return
             
-            # Configure
+            # 1 Configure
             if not self.nav2_controller.is_configured():
                 self.nav2_controller.configure_nav2()
                 return
@@ -207,16 +223,7 @@ class OrchestratorNode(Node):
                 self.nav2_controller.activate_navigation()
                 return
             
-            self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"READYREADY")
+            self.get_logger().info(f"READYREADY")            
             self.get_logger().info(f"READYREADY")
             self.get_logger().info(f"READYREADY")
             self.get_logger().info(f"READYREADY")
@@ -240,6 +247,7 @@ class OrchestratorNode(Node):
     # Odom State Publishing
     # ==================================================
     def activate_odom(self):
+       
         req = ChangeState.Request()
         req.transition.id = Transition.TRANSITION_CONFIGURE
         self.odom_client.call_async(req)
@@ -249,9 +257,31 @@ class OrchestratorNode(Node):
         self.odom_client.call_async(req)
 
     def deactivate_odom(self):
+       
         req = ChangeState.Request()
         req.transition.id = Transition.TRANSITION_DEACTIVATE
         self.odom_client.call_async(req)
+
+    def _on_odom_activated(self, msg: TransitionEvent):
+       
+        start = msg.start_state.label
+        goal = msg.goal_state.label
+
+        self.get_logger().info(
+            f"Lifecycle transition: {start} --------> {goal}"
+        )
+        if goal == "active":
+            self.get_logger().info(
+                "[Odom] Odometry is active"
+            )
+            self.is_odom_active = True
+            return
+        
+        if goal == "inactive":
+            self.get_logger().info(
+                "[Odom] Odometry is inactive"
+            )
+            self.is_odom_active = False
 
     # ==================================================
     # System Service

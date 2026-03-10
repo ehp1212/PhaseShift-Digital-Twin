@@ -49,7 +49,8 @@ def generate_launch_description():
             'autostart': 'false',
             'params_file': 
             # os.path.join(pkg_bringup, 'config', 'nav2.yaml'
-            os.path.join(pkg_bringup, 'config', 'nav2.yaml')
+            os.path.join(pkg_bringup, 'config', 'nav2.yaml'),
+            'map': ''
         }.items()
     )
 
@@ -64,8 +65,7 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': 'false',
             'autostart': 'false',
-            'params_file': 
-            os.path.join(pkg_bringup, 'config', 'nav2.yaml'),
+            'params_file': os.path.join(pkg_bringup, 'config', 'nav2.yaml'),
             'map': ''  # dummy
         }.items()
     )
