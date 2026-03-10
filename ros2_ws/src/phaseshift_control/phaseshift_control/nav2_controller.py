@@ -8,6 +8,7 @@ from lifecycle_msgs.msg import Transition
 from nav2_msgs.srv import LoadMap
 from nav2_msgs.action import NavigateToPose, ComputePathToPose
 from geometry_msgs.msg import Quaternion, PoseStamped
+from phaseshift_interfaces.msg import NavigationFeedback
 
 def yaw_to_quaternion(yaw: float) -> Quaternion:
     q = Quaternion()
@@ -88,6 +89,15 @@ class Nav2Controller:
         self._path_future = None
         self._goal_future = None
         self._path_result = None
+
+        # Nav2 Feedback
+        self.feedback_pub = node.create_publisher(
+            NavigationFeedback,
+            "/system/navigation_feedback",
+            10
+        )
+
+        self._distance_remaining = None
 
         # -----------------------------
         # Internal operation state
@@ -273,7 +283,8 @@ class Nav2Controller:
         )
 
     # =========================================================
-
+    # Load map
+    # =========================================================
     def load_map(
         self,
         map_yaml_path: str,
@@ -350,7 +361,10 @@ class Nav2Controller:
         goal_msg.pose = self._goal_pose
 
         self.node.get_logger().info("[NAV2] Navigation started")
-        self._goal_future = self._nav_client.send_goal_async(goal_msg)
+        self._goal_future = self._nav_client.send_goal_async(
+            goal_msg,
+            feedback_callback=self._feedback_callback
+            )
 
         self._goal_handle = None
         self._result_future = None
@@ -412,17 +426,10 @@ class Nav2Controller:
         
         return "RUNNING"
 
-
     def _reset_navigation(self):
         self._goal_future = None
         self._goal_handle = None
         self._result_future = None
-
-
-
-
-
-
 
     def compute_path(self) -> bool: 
 
@@ -443,6 +450,22 @@ class Nav2Controller:
         self._path_future = self._planner_client.send_goal_async(goal)
         self.node.get_logger().info("[Nav2] ComputePathToPose requested")
         return True
+
+    # =========================================================
+    # Nav Feedback
+    # =========================================================
+    def _feedback_callback(self, msg):
+        
+        feedback = msg.feedback
+
+        nav_msg = NavigationFeedback()
+        nav_msg.distance_remaining = feedback.distance_remaining
+        nav_msg.current_pose = feedback.current_pose.pose
+        nav_msg.navigation_time = float(feedback.navigation_time.sec)
+        nav_msg.estimated_time_remaining = float(feedback.estimated_time_remaining.sec)
+        nav_msg.recovery_count = feedback.number_of_recoveries
+
+        self.feedback_pub.publish(nav_msg)
     
     # =========================================================
     # Internal operation bootstrap

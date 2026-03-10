@@ -8,14 +8,16 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/NavigationFeedback.msg"
   "msg/SystemState.msg"
   "srv/SaveMap.srv"
   "srv/SetGoal.srv"
   "srv/NavigateToGoal.srv"
-  DEPENDENCIES builtin_interfaces std_msgs
+  DEPENDENCIES builtin_interfaces std_msgs geometry_msgs
 )
 
 ament_export_dependencies(rosidl_default_runtime)
