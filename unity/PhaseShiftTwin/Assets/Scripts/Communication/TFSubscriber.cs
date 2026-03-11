@@ -35,7 +35,7 @@ namespace Communication
 
         private void Activate(byte previousPhase, byte newPhase)
         {
-            if (newPhase != SystemPhases.PHASE_SLAM_ACTIVE)
+            /*if (newPhase != SystemPhases.PHASE_SLAM_ACTIVE)
             {
                 if (_active) 
                     Debug.Log($"TOGGLE TF Transform Applier: false");        
@@ -43,7 +43,7 @@ namespace Communication
                 return;
             }
 
-            Debug.Log($"TOGGLE TF Transform Applier: true");
+            Debug.Log($"TOGGLE TF Transform Applier: true");*/
             _active = true;
         }
 
@@ -55,7 +55,7 @@ namespace Communication
 
         private void ProcessTF(TFMessage msg)
         {
-            if (!_active) return;
+            // if (!_active) return;
             
             foreach (var transformStamped in msg.Transforms)
             {

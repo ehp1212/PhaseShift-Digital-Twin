@@ -348,13 +348,6 @@ local_costmap:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         observation_sources: scan
 
-        # scan:
-        #   topic: scan
-        #   max_obstacle_height: 2.0
-        #   clearing: true
-        #   marking: true
-        #   data_type: "LaserScan"
-
         scan:
           topic: /scan
           data_type: "LaserScan"

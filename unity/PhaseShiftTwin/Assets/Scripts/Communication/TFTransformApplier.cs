@@ -1,4 +1,3 @@
-using System;
 using System.Utility;
 using UnityEngine;
 using Quaternion = geometry_msgs.msg.Quaternion;
@@ -23,7 +22,7 @@ namespace Communication
 
         private void Update()
         {
-            if (!_dirty) return;
+            // if (!_dirty) return;
             
             Apply(_targetTranslation, _targetRotation);
         }
@@ -32,7 +31,6 @@ namespace Communication
         {
             transform.position = translation;
             transform.rotation = quaternion;
-
             _dirty = false;
         }
 

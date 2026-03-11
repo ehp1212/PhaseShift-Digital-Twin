@@ -25,6 +25,7 @@ namespace Communication
         protected ISubscription<TMessage> subscription;
 
         public MainThreadDispatcher<TFrame> dispatcher = new();
+        
         protected abstract void SubscribeCallback(TMessage msg);
 
         protected virtual void Start()
@@ -32,7 +33,6 @@ namespace Communication
             ros2System = ROS2System.Instance;
             ros2System.OnInitialize.AddListener(OnInitialize);
         }
-
 
         protected virtual void OnInitialize()
         {

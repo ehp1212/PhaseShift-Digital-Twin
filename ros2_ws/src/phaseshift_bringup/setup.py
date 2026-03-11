@@ -34,6 +34,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'costmap_adapter_node = phaseshift_bringup.costmap_adapter_node:main',
         ],
     },
 )

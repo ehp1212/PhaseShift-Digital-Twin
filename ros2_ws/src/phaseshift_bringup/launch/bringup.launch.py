@@ -71,6 +71,16 @@ def generate_launch_description():
     )
 
     # ==========================
+    # OccupancyGrid Adapter
+    # ==========================
+    costmap_node = Node(
+        package="phaseshift_bringup",
+        executable="costmap_adapter_node",
+        name="costmap_adapter",
+        output="screen"
+    )
+
+    # ==========================
     # Orchestrator
     # ==========================
     orchestrator = Node(
@@ -85,5 +95,6 @@ def generate_launch_description():
         odom_node,
         nav2_launch,
         nav2_local_launch,
+        costmap_node,
         orchestrator
     ])
