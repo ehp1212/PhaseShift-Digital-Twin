@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using phaseshift_interfaces.msg;
 using ROS2;
 using Sensor.Lidar._2D;
@@ -35,6 +36,8 @@ namespace System
         public delegate void OnPhaseChangedHandler(byte previousPhase, byte newPhase);
         public OnPhaseChangedHandler OnPhaseChanged;
         
+        private Dictionary<string, ROS2Node> _createdNodes = new();
+        
         protected override void Awake()
         {
             base.Awake();
@@ -62,6 +65,22 @@ namespace System
             }
             
             SystemState.OnUpdate();
+        }
+        
+        public ROS2Node CreateNode(string nName)
+        {
+            if (_createdNodes.TryGetValue(nName, out ROS2Node existingNode)) 
+                return existingNode;
+            
+            var node = ros2Core.CreateNode(nName);
+            _createdNodes.Add(nName, node);
+            return node;
+        }
+
+        public void RemoveNode(ROS2Node node)
+        {
+            if (_createdNodes.TryGetValue(name, out ROS2Node _))
+                ros2Core.RemoveNode(node);
         }
 
         protected override void OnRosInitialized()
@@ -120,6 +139,11 @@ namespace System
         {
             SLAMUI.Toggle(enter);
             SLAMGeometryMapVisualizer.Show(enter);
+        }
+
+        public bool TryGetNode(string nName, out ROS2Node node)
+        {
+            return _createdNodes.TryGetValue(nName, out node);
         }
     }
 }

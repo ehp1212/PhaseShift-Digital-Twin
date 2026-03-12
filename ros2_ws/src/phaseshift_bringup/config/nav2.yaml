@@ -249,10 +249,10 @@ controller_server:
       decel_lim_y: 0.0
       decel_lim_theta: -3.2
 
-      vx_samples: 20
+      vx_samples: 30
       vy_samples: 1
       vtheta_samples: 20
-      sim_time: 1.0
+      sim_time: 3.0
 
       linear_granularity: 0.05
       angular_granularity: 0.025
@@ -270,9 +270,9 @@ controller_server:
         - GoalAlign
         - RotateToGoal
 
-      BaseObstacle.scale: 0.02
-      PathDist.scale: 16.0
-      GoalDist.scale: 12.0
+      BaseObstacle.scale: 0.3
+      PathDist.scale: 8.0
+      GoalDist.scale: 6.0
       PathAlign.scale: 1.0
       GoalAlign.scale: 1.0
       RotateToGoal.scale: 0.2
@@ -334,8 +334,8 @@ local_costmap:
       publish_frequency: 2.0
 
       rolling_window: true
-      width: 5
-      height: 5
+      width: 6
+      height: 6
       resolution: 0.05
 
       robot_radius: 0.2
@@ -360,7 +360,8 @@ local_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.5
+        inflation_radius: 0.8
+        cost_scaling_factor: 5.0
 
 
 global_costmap:
@@ -379,10 +380,25 @@ global_costmap:
 
       plugins:
         - static_layer
+        - obstacle_layer
         - inflation_layer
 
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        observation_sources: scan
+
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          marking: true
+          clearing: true
+          inf_is_valid: true
+          obstacle_max_range: 4.0
+          raytrace_max_range: 4.5
+          max_obstacle_height: 2.0
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"

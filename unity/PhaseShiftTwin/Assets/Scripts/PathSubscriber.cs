@@ -16,10 +16,6 @@ public class PathSubscriber : ROS2Subscriber<Path, PathFrame>
     private ISubscription<Path> _subscription;
     private ROS2System _ros2System;
 
-    private void Awake()
-    {
-    }
-
     protected override void SubscribeCallback(Path msg)
     {
         var count = msg.Poses.Length;

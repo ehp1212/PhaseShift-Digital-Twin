@@ -40,8 +40,5 @@ namespace System
         protected virtual void OnDestroy()
         {
         }
-        
-        public ROS2Node CreateNode(string name) => ros2Core.CreateNode(name);
-        public void RemoveNode(ROS2Node node) => ros2Core.RemoveNode(node);
     }
 }

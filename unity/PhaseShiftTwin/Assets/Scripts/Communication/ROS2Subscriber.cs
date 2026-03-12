@@ -41,8 +41,10 @@ namespace Communication
                 Debug.LogError($"Failed to create.");
                 return;
             }
+
+            if (!ros2System.TryGetNode(nodeName, out node))
+                node = ros2System.CreateNode(nodeName);
             
-            node = ros2System.CreateNode(nodeName);
             subscription = node.CreateSubscription<TMessage>(topicName,
                 SubscribeCallback
             );

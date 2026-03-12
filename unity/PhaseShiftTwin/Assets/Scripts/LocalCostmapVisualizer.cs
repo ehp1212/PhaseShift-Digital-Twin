@@ -45,12 +45,13 @@ public class LocalCostmapVisualizer : HDRPPointCloudVisualizerProcedural
                 var rosX = frame.Origin.x + col * res;
                 var rosY = frame.Origin.y + row * res;
 
+                var h = occ * 0.002f;
                 var pos = new Vector3(
                     -rosY,
-                    0.1f,
+                    0.02f + h,
                     rosX
                 );
-
+                
                 points[index] = new PointXYZRGB
                 {
                     Position = pos,
