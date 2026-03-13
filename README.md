@@ -4,62 +4,75 @@
 
 **PhaseShift-Digital-Twin** is a robotics simulation and automated testing framework built with **ROS2 and Unity**. 
 
+## Overview
+
+PhaseShift-Digital-Twin is a ROS2-integrated digital twin and simulation-based validation framework designed for robotics development and testing. The project combines Unity-based real-time visualization with a ROS2-native robotics stack, where autonomy, navigation, and system lifecycle management remain fully controlled by ROS2.
+
+Rather than treating Unity as the primary simulation logic layer, this project adopts a ROS2-centric architecture in which Unity functions as a thin digital twin client for visualization, operator interaction, and test scenario generation. This separation enables clearer system boundaries between robot autonomy and simulation interfaces, making the platform easier to validate, extend, and maintain.
+
+Built on top of slam_toolbox, Nav2, and a custom orchestrator node, the framework supports structured robot state management, navigation workflows, and repeatable scenario execution. In addition, it introduces an automated testing layer for validating robot behaviour in dynamic environments, including navigation scenario execution, obstacle injection, and latency monitoring across the perception-to-control pipeline.
+
+The goal of this project is to provide a practical foundation for simulation-driven robotics testing, helping reduce hardware dependency during development while improving confidence in system behaviour before real-world deployment.
+
 ## System Architecture
 
-The system follows a **ROS2-centric architecture** where ROS2 acts as the source of truth for robot state, autonomy logic, and lifecycle management.
+```mermaid
+graph TD
 
-Unity is used purely as a **digital twin visualization and operator interface**, while all robotics decision logic remains inside ROS2.
+subgraph PhaseShift Test
+    SCENARIO[ScenarioRunner]
+    LATENCY[LatencyMonitor]
+end
 
-ROS2 System
-- Orchestrator Node  
-  - System lifecycle management  
-  - SLAM ↔ Navigation phase switching  
-  - Unified `system_state` topic  
+subgraph ROS2 System
+    ORCH[Orchestrator Node]
 
-- SLAM  
-  - slam_toolbox  
+    SLAM_C[SlamController]
+    NAV2_C[NAV2Controller]
+    MAP_M[Map Manager]
 
-- Navigation  
-  - Nav2 stack  
+    SLAM[slam_toolbox]
+    NAV[Nav2 Stack]
 
-- Test Infrastructure  
-  - ScenarioRunner  
-  - LatencyMonitor  
-  - Dynamic obstacle scenarios  
+    CONTROL[Robot Control]
 
-Unity Digital Twin
+    ORCH --> SLAM_C
+    ORCH --> NAV2_C
+    ORCH --> MAP_M
+    MAP_M --> ORCH
 
-- Robot visualization  
-- Sensor visualization  
-- Operator interaction UI  
+    SLAM_C --> SLAM
+    NAV2_C --> NAV
 
-This architecture separates **robot autonomy logic and visualization**, making the system easier to test, maintain, and extend.
+    NAV --> CONTROL
+end
 
-This project integrates **SLAM and Nav2 navigation** with a custom **orchestrator node** that manages system phases such as mapping, navigation readiness, and mission execution. The orchestrator exposes unified interfaces for external clients (Unity and test tools), allowing the robot to be controlled through structured services and system state topics.
+subgraph Unity Digital Twin
+    UNITY[Unity Simulation]
+    UI[Operator UI]
+    OBST[Dynamic Obstacles]
+    
+    SENSOR[Sensor Inputs]
+    SENSOR --> UNITY
+end
 
-On top of the navigation stack, an **automated testing layer** was implemented to support repeatable simulation-based validation. The testing framework executes navigation scenarios and evaluates robot behaviour under dynamic environments.
+UNITY <-->|PhaseShift Phase / ROS2 Topics| ORCH
+OBST --> UNITY
+UI --> UNITY
 
-## ROS2 ↔ Unity Digital Twin
+SCENARIO --> ORCH
+LATENCY --> ORCH
 
-Unity is connected to ROS2 using **ros2-for-unity**, enabling real-time visualization of the robot system.
+```
 
-Unity acts as a **thin digital twin client**, subscribing to ROS2 topics such as:
+The system architecture is organized around a ROS2-centric robotics stack with a dedicated testing layer and a Unity-based digital twin interface.
 
-- TF transforms
-- Occupancy grid maps
-- Navigation paths
-- Sensor data (LiDAR / LaserScan)
+Within the ROS2 system, an Orchestrator Node manages the overall system lifecycle and coordinates high-level phases of operation. It interacts with specialized controllers such as the SLAM Controller and Nav2 Controller, which interface with the underlying slam_toolbox and Nav2 navigation stack. A Map Manager is responsible for handling mapping state and providing map data back to the orchestrator when required.
 
-The Unity environment mirrors the state of the ROS2 system rather than running independent logic.
+On top of the robotics stack, a lightweight testing layer introduces components such as ScenarioRunner and LatencyMonitor, enabling automated navigation scenarios and system performance measurements.
 
-The digital twin is also used to create **dynamic test environments**, allowing obstacles and scenarios to be introduced during navigation tests.
+Unity operates as a digital twin client, providing real-time visualization of robot state, sensor data, and navigation behaviour. It also serves as an operator interface where users can interact with the system and introduce dynamic obstacles to create test scenarios during simulation.
 
-Key testing capabilities include:
-
-- **Automated navigation scenarios** using waypoint-based missions  
-- **Dynamic obstacle testing** to validate navigation robustness  
-- **Sensor-to-control latency measurement** across the navigation pipeline  
-- **Simulation-based validation** to test software behaviour before deploying to real hardware  
 
 ## Testing Framework
 
@@ -71,16 +84,17 @@ The framework includes several components:
 Executes waypoint-based navigation missions automatically and communicates with the system through the orchestrator goal service.
 
 ### LatencyMonitor
-Measures the delay between perception and robot actuation across the navigation pipeline.
+LatencyMonitor measures the end-to-end delay across the robot navigation pipeline, tracking how long it takes for sensor perception to propagate through planning and control layers before resulting in a robot actuation command.
+
+/scan — primary perception input generated from a Velodyne VLP-16 LiDAR, converted to a 2D LaserScan stream for the navigation stack (sensor_msgs/LaserScan). In simulation, a custom LaserScan sensor model is used to reproduce equivalent perception data for testing and validation.
 
 Pipeline measured:
-
-Sensor → Costmap → Planner → Control
-
+Velodyne VLP-16 → LaserScan projection → Nav2 Costmap → Planner → Control
+<!-- 
 ### Dynamic Obstacle Scenarios
 Obstacles can be introduced during navigation to validate avoidance behaviour and system robustness.
 
-This framework allows repeatable **simulation-based validation**, helping verify robot behaviour before deploying software to real hardware.
+This framework allows repeatable **simulation-based validation**, helping verify robot behaviour before deploying software to real hardware. -->
 
 ## Key Features
 
