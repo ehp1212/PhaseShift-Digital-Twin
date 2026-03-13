@@ -1,0 +1,30 @@
+scenario:
+  name: ab_patrol_test
+
+  frame_id: map
+
+  loops: 5
+
+  waypoints:
+
+    start:
+      x: 0.0
+      y: 0.0
+      yaw: 0.0
+
+    A:
+      x: 7.53
+      y: -8.7
+      yaw: 0.0
+
+    B:
+      x: 7.793
+      y: -17.675
+      yaw: 0.0
+
+  route:
+    - start
+    - A
+    - B
+    - A
+    - start

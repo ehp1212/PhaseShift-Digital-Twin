@@ -1,5 +1,4 @@
 using System;
-using System.Service;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -49,7 +48,7 @@ public class InputHandler : MonoBehaviour
             return;
         
         var worldPoint = hit.point;
-
+        
         await SendGoal(worldPoint);
     }
 
