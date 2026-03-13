@@ -23,7 +23,7 @@ public class PathVisualizer : MonoBehaviour
     
     private LineRenderer _lineRenderer;
     private Transform _goalMarkerTransform;
-    private List<Transform> _stepMarkers;
+    private Transform[] _stepMarkers;
     private ROS2System _ros2System;
     private bool _shouldDraw;
 
@@ -47,13 +47,13 @@ public class PathVisualizer : MonoBehaviour
 
         if (_drawStepMarker)
         {
-            _stepMarkers = new List<Transform>();
+            _stepMarkers = new Transform[_stepMarkerCount];
             for (var i = 0; i < _stepMarkerCount; i++)
             {
                 var marker = Instantiate(_stepMarkerPrefab);
                 
                 marker.gameObject.SetActive(false);   
-                _stepMarkers.Add(marker);
+                _stepMarkers[i] = marker;
             }
         }
     }

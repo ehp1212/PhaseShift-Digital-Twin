@@ -91,7 +91,10 @@ class OrchestratorNode(Node):
 
         self.localization_active = False
         self.initial_pose_sent = False
+        
         self.is_odom_active = False
+        self._odom_future = None
+        self._odom_state = "IDLE"
 
         # initial pose publisher
         self.initial_pose_pub = self.create_publisher(
@@ -173,12 +176,12 @@ class OrchestratorNode(Node):
         # INIT → CONNECTING or NAV_READY
         if self.phase == SystemPhase.SYSTEM_INITIALIZING:
 
+            self._update_odom_lifecycle()
+
             if not self.is_odom_active:
                 return
 
             if self._has_map:
-                # self.set_phase(SystemPhase.SLAM_PREPARING)
-
                 self.set_phase(SystemPhase.NAV_PREPARING)
             else:
                 self.set_phase(SystemPhase.SLAM_PREPARING)
@@ -269,14 +272,49 @@ class OrchestratorNode(Node):
     # Odom State Publishing
     # ==================================================
     def activate_odom(self):
-       
-        req = ChangeState.Request()
-        req.transition.id = Transition.TRANSITION_CONFIGURE
-        self.odom_client.call_async(req)
+            
+        if not self.odom_client.wait_for_service(timeout_sec=2.0):
+                self.get_logger().warn("Odom lifecycle service not available")
+                return
+
+        self.get_logger().info("Configuring odom node...")
 
         req = ChangeState.Request()
-        req.transition.id = Transition.TRANSITION_ACTIVATE
-        self.odom_client.call_async(req)
+        req.transition.id = Transition.TRANSITION_CONFIGURE
+
+        self._odom_future = self.odom_client.call_async(req)
+        self._odom_state = "CONFIGURING"
+
+        # req = ChangeState.Request()
+        # req.transition.id = Transition.TRANSITION_ACTIVATE
+        # self.odom_client.call_async(req)
+
+    def _update_odom_lifecycle(self):
+            
+        if self._odom_state == "CONFIGURING":
+
+            if not self._odom_future.done():
+                return
+
+            self.get_logger().info("Odom configured, activating...")
+
+            req = ChangeState.Request()
+            req.transition.id = Transition.TRANSITION_ACTIVATE
+
+            self._odom_future = self.odom_client.call_async(req)
+            self._odom_state = "ACTIVATING"
+            return
+
+
+        if self._odom_state == "ACTIVATING":
+
+            if not self._odom_future.done():
+                return
+
+            self.get_logger().info("Odom ACTIVE")
+
+            self.is_odom_active = True
+            self._odom_state = "ACTIVE"     
 
     def deactivate_odom(self):
        
@@ -330,7 +368,7 @@ class OrchestratorNode(Node):
         timestamp = int(time.time())
         map_file = f"{map_name}_{timestamp}"
 
-        map_path = os.path.join(self.map_directory, map_file)
+        map_path = os.path.join(self.map_manager.map_directory, map_file)
         self.slam_controller.save_map_async(map_path)
 
         response.success = True
