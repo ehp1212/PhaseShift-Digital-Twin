@@ -32,10 +32,13 @@ namespace Communication
             _source = GetComponent<UnitySensor>();
             _sourceInterface = _source as IPointCloudInterface<PointXYZI>;
             if (_sourceInterface == null)
+            {
                 Debug.LogError($"Cannot get source interface");
+                return;
+            }
         }
 
-        private void Publish()
+        protected override void Publish()
         {
             var cloudPoints = _sourceInterface.pointCloud.points;
             
