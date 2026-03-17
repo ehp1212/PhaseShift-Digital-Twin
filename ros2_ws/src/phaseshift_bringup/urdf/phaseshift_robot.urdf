@@ -25,4 +25,20 @@
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
+  <link name="camera_link"/>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="camera_optical_frame"/>
+
+  <joint name="camera_optical_frame_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
+  </joint>
+
 </robot>

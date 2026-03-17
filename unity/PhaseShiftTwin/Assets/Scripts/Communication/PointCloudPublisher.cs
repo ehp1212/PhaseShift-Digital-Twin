@@ -7,6 +7,8 @@ using UnitySensors.Sensor;
 using UnitySensors.Sensor.LiDAR;
 using sensor_msgs.msg;
 using std_msgs.msg;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace Communication
 {
@@ -57,13 +59,28 @@ namespace Communication
         }
         
         private PointCloud2 BuildPointCloud2FromXYZI(
-            Unity.Collections.NativeArray<PointXYZI> points,
+            NativeArray<PointXYZI> points,
             string frameId,
             int sec,
             uint nanosec)
         {
-            int count = points.Length;
+            var count = points.Length;
+            
+            var rosPoints = new NativeArray<PointXYZI>(count, Allocator.Temp);
+            for (var i = 0; i < count; i++)
+            {
+                var p = points[i];
 
+                rosPoints[i] = new PointXYZI
+                {
+                    position = new Vector3(
+                        p.position.z,
+                        -p.position.x,
+                        p.position.y),
+                    intensity = p.intensity
+                };
+            }
+            
             var msg = new PointCloud2();
 
             // Header
@@ -79,7 +96,7 @@ namespace Communication
             msg.Is_bigendian = false;
             msg.Is_dense = true;
 
-            // x,y,z,intensity float32 4개 = 16 bytes
+            // x,y,z,intensity
             msg.Point_step = 16;
             msg.Row_step   = msg.Point_step * msg.Width;
 
@@ -90,26 +107,8 @@ namespace Communication
             msg.Fields[2] = CreateField("z", 8);
             msg.Fields[3] = CreateField("intensity", 12);
 
-            // Data 크기: Height * Row_step
-            int dataSize = checked((int)(msg.Height * msg.Row_step));
-            msg.Data = new byte[dataSize];
-
-            for (int i = 0; i < count; i++)
-            {
-                var p = points[i];
-
-                // Unity → ROS 좌표 변환 (권장)
-                float ros_x = p.position.z;
-                float ros_y = -p.position.x;
-                float ros_z = p.position.y;
-
-                int offset = i * 16;
-                WriteFloatLE(msg.Data, offset + 0,  ros_x);
-                WriteFloatLE(msg.Data, offset + 4,  ros_y);
-                WriteFloatLE(msg.Data, offset + 8,  ros_z);
-                WriteFloatLE(msg.Data, offset + 12, p.intensity);
-            }
-
+            var rawBytes = rosPoints.Reinterpret<byte>(16);
+            msg.Data = rawBytes.ToArray();
             return msg;
         }
 
@@ -125,7 +124,6 @@ namespace Communication
 
         private void WriteFloatLE(byte[] buffer, int offset, float value)
         {
-            // 대부분 리틀엔디안. (Is_bigendian=false)
             var bytes = BitConverter.GetBytes(value);
             Buffer.BlockCopy(bytes, 0, buffer, offset, 4);
         }
