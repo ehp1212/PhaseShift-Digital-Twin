@@ -33,6 +33,7 @@ public class PathVisualizer : MonoBehaviour
         
         var obj = new GameObject("PathVisualizer");
         obj.transform.parent = transform;
+        obj.layer = LayerMask.NameToLayer("Debug");
         
         _lineRenderer = obj.AddComponent<LineRenderer>();
         
