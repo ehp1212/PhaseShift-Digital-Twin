@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 
 [RequireComponent(typeof(PathSubscriber))]
@@ -34,10 +33,15 @@ public class PathVisualizer : MonoBehaviour
         
         var obj = new GameObject("PathVisualizer");
         obj.transform.parent = transform;
+        obj.layer = LayerMask.NameToLayer("Debug");
         
         _lineRenderer = obj.AddComponent<LineRenderer>();
         
         SetUpLineRenderer();
+
+        var debugLayer = LayerMask.NameToLayer("Debug");
+        Debug.Log($"Setting Path visualizer : {debugLayer}");
+        gameObject.layer = debugLayer;
         
         if (_drawGoalMarker)
         {
