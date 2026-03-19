@@ -1,3 +1,4 @@
+import os
 import threading
 import queue
 
@@ -7,6 +8,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 from sensor_msgs.msg import CompressedImage
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose, ObjectHypothesis
+from ament_index_python.packages import get_package_share_directory
 from std_msgs.msg import Header
 
 from cv_bridge import CvBridge
@@ -29,6 +31,9 @@ class YoloDetectorNode(LifecycleNode):
         self._thread = None
         self._running = False
 
+        pkg_path = get_package_share_directory("phaseshift_perception")
+        self._path = os.path.join(pkg_path, "models", "yolov8n.pt")
+
         self.get_logger().info("[YOLO] Lifecycle Node Created...")
 
     # -----------------------------
@@ -39,7 +44,7 @@ class YoloDetectorNode(LifecycleNode):
 
         try:
             # Model loading 
-            self._model = YOLO("yolov8n.pt")
+            self._model = YOLO(self._path)
 
             qos_detection = QoSProfile(
                 reliability=ReliabilityPolicy.RELIABLE,
