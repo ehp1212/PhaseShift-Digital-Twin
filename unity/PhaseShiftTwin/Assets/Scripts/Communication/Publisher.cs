@@ -26,6 +26,7 @@ namespace Communication
         
         public float DT => _frequency_inv;
         public float Time => _time;
+        public string TopicName => _topicName;
 
         protected override void Awake()
         {
