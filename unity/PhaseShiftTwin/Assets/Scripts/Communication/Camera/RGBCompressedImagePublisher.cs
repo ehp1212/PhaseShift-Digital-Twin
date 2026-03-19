@@ -56,7 +56,6 @@ namespace Communication.Camera
 
             _jpgBuffer = _compressedTexture.EncodeToJPG();
             PublishCompressed(_jpgBuffer);
-            
         }
 
         private void PublishCompressed(byte[] jpgBuffer)
@@ -69,7 +68,16 @@ namespace Communication.Camera
             msg.Format = "jpeg";
             msg.Data = jpgBuffer;
 
+            UpdateTimeStamp(ref msg);
             publisher.Publish(msg);
+        }
+        
+        private void UpdateTimeStamp(ref CompressedImage compressedImage)
+        {
+            var clockMsg = new rosgraph_msgs.msg.Clock();
+            Node.clock.UpdateClockMessage(ref clockMsg);
+
+            compressedImage.UpdateHeaderTime(clockMsg.Clock_.Sec, clockMsg.Clock_.Nanosec);
         }
     }
 }

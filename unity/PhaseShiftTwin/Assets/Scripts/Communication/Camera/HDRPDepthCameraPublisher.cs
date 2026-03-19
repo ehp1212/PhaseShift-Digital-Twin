@@ -127,7 +127,16 @@ namespace Communication.Camera
             var rawBytes = raw.Reinterpret<byte>(sizeof(float));
             rawBytes.CopyTo(msg.Data);
 
+            UpdateTimeStamp(ref msg);
             publisher.Publish(msg);
+        }
+        
+        private void UpdateTimeStamp(ref Image image)
+        {
+            var clockMsg = new rosgraph_msgs.msg.Clock();
+            Node.clock.UpdateClockMessage(ref clockMsg);
+
+            image.UpdateHeaderTime(clockMsg.Clock_.Sec, clockMsg.Clock_.Nanosec);
         }
 
         private void OInPointsReady(AsyncGPUReadbackRequest req)
