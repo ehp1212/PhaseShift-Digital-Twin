@@ -42,6 +42,8 @@ namespace Communication
 
         protected override void Publish()
         {
+            if (!Ros2System.IsOk) return;
+            
             var cloudPoints = _sourceInterface.pointCloud.points;
             
             // test timestamp

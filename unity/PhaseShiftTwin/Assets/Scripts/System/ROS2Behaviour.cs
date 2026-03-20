@@ -10,6 +10,7 @@ namespace System
         protected virtual string nodeName => "unity_node";
         
         private bool initialized;
+        public bool Ok() => ros2Core != null && ros2Core.Ok();
 
         protected virtual void Awake()
         {

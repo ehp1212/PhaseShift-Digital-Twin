@@ -1,6 +1,7 @@
 using System.Linq;
 using ROS2;
 using sensor_msgs.msg;
+using std_msgs.msg;
 using UnityEngine;
 
 namespace Communication.Camera
@@ -55,6 +56,8 @@ namespace Communication.Camera
         private void SetupIntrinsics()
         {
             var msg = new CameraInfo();
+            msg.Header = new Header();
+            msg.Header.Frame_id = FrameId;
 
             msg.Width = (uint)width;
             msg.Height = (uint)height;
@@ -81,6 +84,8 @@ namespace Communication.Camera
         
         protected override void Publish()
         {
+            if (!Ros2System.IsOk) return;
+            
             UpdateTimeStamp(ref _infoMsg);
             _cameraInfoPublisher.Publish(_infoMsg);
         }

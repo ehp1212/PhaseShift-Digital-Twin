@@ -28,6 +28,7 @@ namespace System
 
         private ScreenUI ScreenUI { get; set; }
         public SLAMUI SLAMUI { get; set; }
+        public bool IsOk => Ok();
         
         private ScanRaycastSensor ScanRaycastSensor { get; set; }
         private SLAMGeometryMapVisualizer SLAMGeometryMapVisualizer { get; set; }

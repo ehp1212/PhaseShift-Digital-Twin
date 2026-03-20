@@ -13,6 +13,7 @@ namespace Communication.Camera
         
         private Texture2D _compressedTexture;
         private byte[] _jpgBuffer;
+        private CompressedImage _msg;
 
         protected override void Awake()
         {
@@ -33,7 +34,13 @@ namespace Communication.Camera
         {
             base.OnInitialize();
             
-            _compressedTexture = new Texture2D(width, height, TextureFormat.RGBA32, false); 
+            _compressedTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            
+            _msg = new CompressedImage();
+            _msg.Header = new Header();
+            _msg.Header.Frame_id = FrameId;
+
+            _msg.Format = "jpeg";
         }
 
         /* Publish data by frequency not onSensorUpdated in sensor */
@@ -65,17 +72,13 @@ namespace Communication.Camera
 
         private void PublishCompressed(byte[] jpgBuffer)
         {
-            var msg = new CompressedImage();
-
-            msg.Header = new Header();
-            msg.Header.Frame_id = FrameId;
-
-            msg.Format = "jpeg";
-            msg.Data = jpgBuffer;
-
-            UpdateTimeStamp(ref msg);
-            publisher.Publish(msg);
+            if (!Ros2System.IsOk) return;
             
+            _msg.Data = jpgBuffer;
+
+            UpdateTimeStamp(ref _msg);
+            publisher.Publish(_msg);
+
             // Publish Camera info
             base.Publish();
         }

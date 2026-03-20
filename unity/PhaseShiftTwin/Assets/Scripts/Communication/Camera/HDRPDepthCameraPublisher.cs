@@ -23,7 +23,9 @@ namespace Communication.Camera
         private ComputeBuffer _pointBuffer;
         private ComputeBuffer _depthBuffer;
         private int _kernel;
-
+        private Image _msg;
+        private byte[] _bytes;
+        
         protected override void Awake()
         {
             base.Awake();
@@ -63,6 +65,17 @@ namespace Communication.Camera
             if (!_publishPointCloud) return;
             
             _pointCloudPublisher = Node.CreatePublisher<PointCloud2>(_pcTopicName);
+            
+            _msg = new Image();
+            _msg.Header = new Header();
+            _msg.Header.Frame_id = FrameId;
+            
+            _msg.Width = (uint)width;
+            _msg.Height = (uint)height;
+
+            _msg.Encoding = "32FC1";
+            _msg.Is_bigendian = 0;
+            _msg.Step = _msg.Width * sizeof(float);
         }
 
         private void SetupIntrinsics()
@@ -103,27 +116,17 @@ namespace Communication.Camera
 
         private void PublishDepthImage(NativeArray<float> raw)
         {
-            var msg = new Image();
+            if (!Ros2System.IsOk) return;
             
-            msg.Header = new Header();
-            msg.Header.Frame_id = FrameId;
-            
-            msg.Width = (uint)width;
-            msg.Height = (uint)height;
-
-            msg.Encoding = "32FC1";
-            msg.Is_bigendian = 0;
-            
-            msg.Step = msg.Width * sizeof(float);
-
-            var size = raw.Length * sizeof(float);
-            msg.Data = new byte[size];
+            if (_bytes == null || _bytes.Length != raw.Length * sizeof(float))
+                _bytes = new byte[raw.Length * sizeof(float)];
 
             var rawBytes = raw.Reinterpret<byte>(sizeof(float));
-            rawBytes.CopyTo(msg.Data);
-
-            UpdateTimeStamp(ref msg);
-            publisher.Publish(msg);
+            rawBytes.CopyTo(_bytes);
+            
+            _msg.Data = _bytes;
+            UpdateTimeStamp(ref _msg);
+            publisher.Publish(_msg);
             
             // Publish Camera info
             base.Publish();
@@ -164,7 +167,9 @@ namespace Communication.Camera
             msg.Fields[1] = CreateField("y", 4);
             msg.Fields[2] = CreateField("z", 8);
             msg.Data = rawBytes.ToArray();
-            
+
+            if (!Ros2System.IsOk) return;
+
             _pointCloudPublisher.Publish(msg);
         }
         
@@ -175,10 +180,10 @@ namespace Communication.Camera
                 _pointBuffer.Release();
         }
         
-        private PointField CreateField(string name, uint offset)
+        private PointField CreateField(string fieldName, uint offset)
         {
             var f = new PointField();
-            f.Name = name;                 
+            f.Name = fieldName;                 
             f.Offset = offset;
             f.Datatype = PointField.FLOAT32;
             f.Count = 1;
