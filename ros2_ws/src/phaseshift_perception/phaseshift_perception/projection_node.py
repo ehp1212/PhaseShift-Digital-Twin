@@ -12,10 +12,10 @@ from geometry_msgs.msg import PointStamped
 from cv_bridge import CvBridge
 
 import tf2_ros
+import tf2_geometry_msgs
 from tf2_ros import TransformException
 
 from phaseshift_interfaces.msg import DetectedObjectArray, DetectedObject
-
 
 class ProjectionNode(LifecycleNode):
     def __init__(self):
@@ -179,7 +179,7 @@ class ProjectionNode(LifecycleNode):
         depth_img = self._latest_depth
         height, width = depth_img.shape[:2]
 
-        out = Detection2DArray()
+        out = DetectedObjectArray()
         out.header = msg.header
         out.header.frame_id = self._target_frame
 
@@ -232,4 +232,33 @@ class ProjectionNode(LifecycleNode):
 
         if len(out.objects) > 0:
             self._pub_objects.publish(out)
+        
+    def _is_valid_pixel(self, u, v, width, height):
+        return 0 <= u < width and 0 <= v < height
+    
+    def _sample_depth(self, depth_img, u, v):
+        z = depth_img[v, u]
 
+        if z == 0 or not np.isfinite(z):
+            return None
+
+        return float(z)
+
+def main(args=None):
+    rclpy.init(args=args)
+
+    node = ProjectionNode()
+    
+    executor = rclpy.executors.SingleThreadedExecutor()
+    executor.add_node(node)
+
+    try:
+        executor.spin()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()

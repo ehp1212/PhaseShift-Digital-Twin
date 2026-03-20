@@ -14,6 +14,7 @@ from phaseshift_interfaces.srv import NavigateToGoal
 
 from phaseshift_control.slam_controller import SlamController
 from phaseshift_control.nav2_controller import Nav2Controller
+from phaseshift_control.perception_controller import PerceptionController
 
 from .system_state_publisher import SystemStatePublisher
 from .map_manager import MapManager
@@ -43,6 +44,7 @@ class OrchestratorNode(Node):
         self._system_publisher = SystemStatePublisher(self)
         self.slam_controller = SlamController(self)
         self.nav2_controller = Nav2Controller(self)
+        self.perception_controller = PerceptionController(self)
 
         # Map Manager
         self.map_manager = MapManager()
@@ -57,14 +59,6 @@ class OrchestratorNode(Node):
         self.odom_state_client = self.create_client(
             GetState,
             '/odometry_node/get_state'
-        )
-
-        # Check odom transition 
-        self.create_subscription(
-            TransitionEvent,
-            '/odometry_node/transition_event',
-            self._on_odom_activated,
-            10
         )
 
         # Services
@@ -94,7 +88,6 @@ class OrchestratorNode(Node):
         
         self.is_odom_active = False
         self._odom_future = None
-        self._odom_state = "IDLE"
 
         # initial pose publisher
         self.initial_pose_pub = self.create_publisher(
@@ -176,8 +169,6 @@ class OrchestratorNode(Node):
         # INIT → CONNECTING or NAV_READY
         if self.phase == SystemPhase.SYSTEM_INITIALIZING:
 
-            self._update_odom_lifecycle()
-
             if not self.is_odom_active:
                 return
 
@@ -238,6 +229,14 @@ class OrchestratorNode(Node):
                 self.nav2_controller.activate_navigation()
                 return
             
+            if self.perception_controller.is_idle():
+                self.perception_controller.activate()
+                return
+
+            if not self.perception_controller.is_active():
+                self.get_logger().info(f"Waiting for perception controller ready, current {self.perception_controller.state}")                
+                return
+
             self.get_logger().info(f"==========")            
             self.get_logger().info(f"==========")            
             self.get_logger().info(f"==========")            
@@ -246,8 +245,10 @@ class OrchestratorNode(Node):
             self.get_logger().info(f"==========")            
             self.get_logger().info(f"==========")            
 
+            self.get_logger().info(f'Perception State {self.perception_controller.state}')
+
             # nav2 configure and activate
-            if self.nav2_controller.is_ready():
+            if self.nav2_controller.is_ready() and self.perception_controller.is_active():
                 self.set_phase(SystemPhase.NAV_READY)
 
             return
@@ -283,65 +284,101 @@ class OrchestratorNode(Node):
         req.transition.id = Transition.TRANSITION_CONFIGURE
 
         self._odom_future = self.odom_client.call_async(req)
-        self._odom_state = "CONFIGURING"
-
-        # req = ChangeState.Request()
-        # req.transition.id = Transition.TRANSITION_ACTIVATE
-        # self.odom_client.call_async(req)
-
-    def _update_odom_lifecycle(self):
-            
-        if self._odom_state == "CONFIGURING":
-
-            if not self._odom_future.done():
-                return
-
-            self.get_logger().info("Odom configured, activating...")
-
-            req = ChangeState.Request()
-            req.transition.id = Transition.TRANSITION_ACTIVATE
-
-            self._odom_future = self.odom_client.call_async(req)
-            self._odom_state = "ACTIVATING"
-            return
-
-
-        if self._odom_state == "ACTIVATING":
-
-            if not self._odom_future.done():
-                return
-
-            self.get_logger().info("Odom ACTIVE")
-
-            self.is_odom_active = True
-            self._odom_state = "ACTIVE"     
+        self._odom_future.add_done_callback(self._on_odom_configured)
 
     def deactivate_odom(self):
-       
+    
+        if not self.odom_client.wait_for_service(timeout_sec=2.0):
+                self.get_logger().warn("Odom lifecycle service not available")
+                return
+
+        self.get_logger().info("Deactivating odom node...")
+
         req = ChangeState.Request()
         req.transition.id = Transition.TRANSITION_DEACTIVATE
+
+        self._odom_future = self.odom_client.call_async(req)
+        self._odom_future.add_done_callback(self._on_odom_deactivate)
         self.odom_client.call_async(req)
 
-    def _on_odom_activated(self, msg: TransitionEvent):
-       
-        start = msg.start_state.label
-        goal = msg.goal_state.label
-
-        self.get_logger().info(
-            f"Lifecycle transition: {start} --------> {goal}"
-        )
-        if goal == "active":
-            self.get_logger().info(
-                "[Odom] Odometry is active"
-            )
-            self.is_odom_active = True
-            return
+    # -----------------------------
+    # Callbacks
+    # -----------------------------
+    def _on_odom_configured(self, future):
         
-        if goal == "inactive":
-            self.get_logger().info(
-                "[Odom] Odometry is inactive"
-            )
-            self.is_odom_active = False
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Odom configure failed: {e}")
+            return
+
+        if not result.success:
+            self.get_logger().error("Odom configure failed (response false)")
+            return
+
+        self.get_logger().info("[Odom] CONFIGURED, activating...")
+
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_ACTIVATE
+
+        future = self.odom_client.call_async(req)
+        future.add_done_callback(self._on_odom_activated)
+
+    # -----------------------------
+
+    def _on_odom_activated(self, future):
+
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Odom activate failed: {e}")
+            return
+
+        if not result.success:
+            self.get_logger().error("Odom activate failed (response false)")
+            return
+
+        self.get_logger().info("[Odom] ACTIVE")
+        self.is_odom_active = True
+
+    # -----------------------------
+
+    def _on_odom_deactivate(self, future):
+        
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Odom deactivate failed: {e}")
+            return
+
+        if not result.success:
+            self.get_logger().error("Odom deactivate failed (response false)")
+            return
+
+        self.get_logger().info("[Odom] DEACTIVATED, cleaning up...")
+
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_CLEANUP
+        self.is_odom_active = False
+
+        future = self.odom_client.call_async(req)
+        future.add_done_callback(self._on_odom_cleanup)
+
+    # -----------------------------
+
+    def _on_odom_cleanup(self, future):
+
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Odom cleanup failed: {e}")
+            return
+
+        if not result.success:
+            self.get_logger().error("Odom cleanup failed (response false)")
+            return
+
+        self.get_logger().info("[Odom] CLEANUP")
 
     # ==================================================
     # System Service

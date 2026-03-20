@@ -12,6 +12,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/launch', ['launch/perception.launch.py']),
 
         (os.path.join('share', package_name, 'models'),
          glob('models/yolov8n.pt')),
@@ -29,7 +30,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'yolo_detector_node = phaseshift_perception.yolo_detector_node:main'
+            'yolo_detector_node = phaseshift_perception.yolo_detector_node:main',
+            'projection_node = phaseshift_perception.projection_node:main',
         ],
     },
 )

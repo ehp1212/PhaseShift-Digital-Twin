@@ -81,6 +81,19 @@ def generate_launch_description():
     )
 
     # ==========================
+    # Perception Layer
+    # ==========================
+    perception_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('phaseshift_perception'),
+                'launch',
+                'perception.launch.py'
+            )
+        )
+    )
+
+    # ==========================
     # Orchestrator
     # ==========================
     orchestrator = Node(
@@ -96,5 +109,6 @@ def generate_launch_description():
         nav2_launch,
         nav2_local_launch,
         costmap_node,
+        perception_launch,
         orchestrator
     ])
