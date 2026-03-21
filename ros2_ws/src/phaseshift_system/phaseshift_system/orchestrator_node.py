@@ -468,6 +468,16 @@ class OrchestratorNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = OrchestratorNode()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+
+    try:
+        rclpy.spin(node)
+    
+    except KeyboardInterrupt:
+        node.get_logger().info("Keyboard Interrupt (Ctrl+C)")
+
+    except Exception as e:
+        print(f"Destroy error: {e}")
+        
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()

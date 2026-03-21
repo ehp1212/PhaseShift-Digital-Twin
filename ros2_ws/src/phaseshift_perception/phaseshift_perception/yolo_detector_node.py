@@ -14,7 +14,6 @@ from std_msgs.msg import Header
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
-import tf2_geometry_msgs
 
 from ultralytics import YOLO
 
@@ -164,6 +163,12 @@ class YoloDetectorNode(LifecycleNode):
             msg.header = header
 
             for box in results.boxes:
+                
+                confidence = box.conf[0]
+                if confidence < 0.3:
+                    continue
+                
+     
                 det = Detection2D()
 
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
@@ -177,6 +182,11 @@ class YoloDetectorNode(LifecycleNode):
                 class_id = int(box.cls[0])
                 class_name = self._model.names[class_id]
 
+                valid_class = ["chair"]
+                if class_name not in valid_class:
+                    continue
+
+
                 hyp = ObjectHypothesis()
                 hyp.class_id = class_name
                 hyp.score = float(box.conf[0])
@@ -185,9 +195,6 @@ class YoloDetectorNode(LifecycleNode):
                 obj.hypothesis = hyp
 
                 det.results.append(obj)
-                msg.detections.append(det)
-
-
                 msg.detections.append(det)
 
             self._pub.publish(msg)

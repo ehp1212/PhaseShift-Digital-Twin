@@ -175,7 +175,7 @@ class ProjectionNode(LifecycleNode):
         if fx == 0.0 or fy == 0.0:
             self.get_logger().warn('[Projection] Invalid camera intrinsics')
             return
-
+     
         depth_img = self._latest_depth
         height, width = depth_img.shape[:2]
 
@@ -193,7 +193,14 @@ class ProjectionNode(LifecycleNode):
             if not self._is_valid_pixel(u, v, width, height):
                 continue
             
-            z = self._sample_depth(depth_img, u, v)
+            # ========================
+            # Far range value in unity
+            # ========================
+            depth_camera_range = 20
+
+
+            z = self._sample_depth_region(depth_img, u, v) * depth_camera_range
+            # z = self._sample_depth(depth_img, u, v) * depth_camera_range
             if z is None:
                 continue
 
@@ -206,6 +213,11 @@ class ProjectionNode(LifecycleNode):
             point_cam.point.x = float(x)
             point_cam.point.y = float(y)
             point_cam.point.z = float(z)
+
+
+            self.get_logger().info(f"u,v: {u},{v}")
+            self.get_logger().info(f"depth: {z}")
+
 
             try:
                 point_map = self._tf_buffer.transform(
@@ -243,6 +255,23 @@ class ProjectionNode(LifecycleNode):
             return None
 
         return float(z)
+    
+    def _sample_depth_region(self, depth, u, v, w=5):
+        h, W = depth.shape[:2]
+
+        u0 = max(0, u - w)
+        u1 = min(W, u + w)
+        v0 = max(0, v - w)
+        v1 = min(h, v + w)
+
+        patch = depth[v0:v1, u0:u1]
+
+        valid = patch[np.isfinite(patch) & (patch > 0)]
+
+        if len(valid) == 0:
+            return None
+
+        return float(np.median(valid)) 
 
 def main(args=None):
     rclpy.init(args=args)

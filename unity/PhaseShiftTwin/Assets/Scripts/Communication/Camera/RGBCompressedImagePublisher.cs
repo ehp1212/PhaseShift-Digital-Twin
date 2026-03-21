@@ -76,7 +76,7 @@ namespace Communication.Camera
             
             _msg.Data = jpgBuffer;
 
-            UpdateTimeStamp(ref _msg);
+            // UpdateTimeStamp(ref _msg);
             publisher.Publish(_msg);
 
             // Publish Camera info

@@ -12,9 +12,6 @@ namespace Communication.Camera
         [SerializeField] private RenderTexture _depthRenderTexture;
         [SerializeField] private ComputeShader _depthToPointShader;
         
-        [SerializeField] protected float _minRange = 0.05f;
-        [SerializeField] protected float _maxRange = 100.0f;
-        
         [Header("Point Cloud")]
         [SerializeField] private bool _publishPointCloud = true;
         [SerializeField] private string _pcTopicName = "/camera/depth/points";
@@ -40,9 +37,6 @@ namespace Communication.Camera
             
             base.Start();
 
-            renderCamera.nearClipPlane = _minRange;
-            renderCamera.farClipPlane = _maxRange;
-            
             _pointBuffer = new ComputeBuffer(sourceTexture.width * sourceTexture.height, sizeof(float) * 3);
             _depthBuffer = new ComputeBuffer(sourceTexture.width * sourceTexture.height, sizeof(float));
             _kernel = _depthToPointShader.FindKernel("CSMain");
@@ -53,6 +47,8 @@ namespace Communication.Camera
             
             _depthToPointShader.SetInt("width", width);
             _depthToPointShader.SetInt("height", height);
+            
+            _depthToPointShader.SetFloat("range", renderCamera.farClipPlane);
             
             SetupIntrinsics();
         }
@@ -125,7 +121,7 @@ namespace Communication.Camera
             rawBytes.CopyTo(_bytes);
             
             _msg.Data = _bytes;
-            UpdateTimeStamp(ref _msg);
+            // UpdateTimeStamp(ref _msg);
             publisher.Publish(_msg);
             
             // Publish Camera info
