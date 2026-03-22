@@ -35,15 +35,6 @@ class Nav2Controller:
 
     DEACTIVATE_ORDER = list(reversed(CONFIGURE_ORDER))
 
-    def is_configured(self) -> bool:
-        return self._configured
-    
-    def is_activated(self) -> bool:
-        return self._activated
-    
-    def is_map_loaded(self) -> bool:
-        return self._map_loaded
-
     def __init__(self, node):
         self.node = node
 
@@ -117,8 +108,16 @@ class Nav2Controller:
         self._on_failure: Optional[Callable[[str], None]] = None
 
         self._configured = False
-        self._activated = False
+        self._is_configuring = False
+
+        self._localization_active = False
+        self._is_localization_activating = False
+
         self._map_loaded = False
+        self._map_loading = False
+
+        self._activated = False
+        self._activating = False
 
         # single-thread executor safe polling timer
         self._timer = self.node.create_timer(0.1, self._poll)
@@ -132,12 +131,30 @@ class Nav2Controller:
             self._configured
             and self._activated
         )
-
+    
+    def is_configured(self) -> bool:
+        return self._configured
+    
+    def is_localization_activated(self) -> bool:
+        return self._localization_active
+    
+    def is_map_loaded(self) -> bool:
+        return self._map_loaded
+    
+    def is_activated(self) -> bool:
+        return self._activated
+    
     def configure_nav2(self):
+
+        if self._configured or self._is_configuring:
+           return
+
+        self._is_configuring = True
 
         def on_configure_success():
             self.node.get_logger().info("[Nav2] Configure complete")
             self._configured = True
+            self._is_configuring = False
 
         self.configure(
             on_success=on_configure_success,
@@ -174,12 +191,35 @@ class Nav2Controller:
             on_failure=on_deactivate_failure
         )
 
+    def is_localization_ready(self) -> bool:
+        self.configure_nav2()    
+        if not self.is_configured():
+            return False
+        
+        self.activate_localization()
+        if not self.is_localization_activated():
+            return False
+        
+        return True
+    
+    def is_navigation_ready(self) -> bool:
+        self.activate_navigation()
+        if not self.is_activated():
+            return False
+        
+        return True
 
     def load_map_nav2(self, map_yaml):
+
+        if self._map_loaded or self._map_loading:
+            return
+
+        self._map_loading = True
 
         def on_success():
             self.node.get_logger().info("[Nav2] map loaded")
             self._map_loaded = True
+            self._map_loading = False
 
         self.load_map(
             map_yaml_path=map_yaml,
@@ -187,11 +227,17 @@ class Nav2Controller:
             on_failure=lambda e: self.node.get_logger().error(e)
         )
 
-
     def activate_localization(self):
+
+        if self._localization_active or self._is_localization_activating:
+            return
+        
+        self._is_localization_activating = True
 
         def on_success():
             self.node.get_logger().info("[Nav2] map_server + amcl active")
+            self._is_localization_activating = False
+            self._localization_active = True
 
         self._start_transition_operation(
             op_name="activate_localization",
@@ -204,9 +250,15 @@ class Nav2Controller:
 
     def activate_navigation(self):
 
+        if self._activated or self._activating:
+            return
+        
+        self._activating = True
+
         def on_success():
             self.node.get_logger().info("[Nav2] navigation stack active")
             self._activated = True
+            self._activating = False
 
         self._start_transition_operation(
             op_name="activate_navigation",

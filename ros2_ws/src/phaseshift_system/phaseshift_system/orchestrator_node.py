@@ -74,7 +74,6 @@ class OrchestratorNode(Node):
         # Internal state
         self.phase = SystemPhase.BOOT
 
-        self.localization_active = False
         self.initial_pose_sent = False
 
         # initial pose publisher
@@ -188,33 +187,23 @@ class OrchestratorNode(Node):
         if self.phase == SystemPhase.NAV_PREPARING:
             if self.nav2_controller.is_busy():
                 return
-            
-            # 1 Configure
-            if not self.nav2_controller.is_configured():
-                self.nav2_controller.configure_nav2()
-                return
-            
-            # 2 activate map_server + amcl
-            if not self.localization_active:
-                self.nav2_controller.activate_localization()
-                self.localization_active = True
+
+            if not self.nav2_controller.is_localization_ready():
                 return
 
-            # 3 load map
+            # Load map
+            map_yaml = self.map_manager.get_latest_map()
+            self.nav2_controller.load_map_nav2(map_yaml)
             if not self.nav2_controller.is_map_loaded():
-                map_yaml = self.map_manager.get_latest_map()
-                self.nav2_controller.load_map_nav2(map_yaml)
                 return
-
-            # 4 send initial pose
+         
+            # Initial pose
             if not self.initial_pose_sent:
                 self.publish_initial_pose()
                 self.initial_pose_sent = True
                 return
-            
-            # 5 activate rest of nav2
-            if not self.nav2_controller.is_activated():
-                self.nav2_controller.activate_navigation()
+
+            if not self.nav2_controller.is_navigation_ready():
                 return
             
             if self.perception_controller.is_idle():
