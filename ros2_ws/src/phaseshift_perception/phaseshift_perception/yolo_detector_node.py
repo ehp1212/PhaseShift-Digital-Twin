@@ -151,7 +151,9 @@ class YoloDetectorNode(LifecycleNode):
     # -----------------------------
     def _inference_loop(self):
         while self._running:
-
+            if not rclpy.ok():
+                return
+            
             try:
                 image, header = self._queue.get(timeout=0.1)
             except queue.Empty:
@@ -168,7 +170,6 @@ class YoloDetectorNode(LifecycleNode):
                 if confidence < 0.3:
                     continue
                 
-     
                 det = Detection2D()
 
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
@@ -210,10 +211,9 @@ def main(args=None):
     try:
         executor.spin()
     except KeyboardInterrupt:
-        pass
+        node.get_logger().info("Shutdown requested (Ctrl+C)")
     finally:
         node.destroy_node()
-        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

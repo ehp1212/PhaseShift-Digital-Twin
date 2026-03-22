@@ -17,15 +17,15 @@ public class DetectionVisualizer : MonoBehaviour
     private Dictionary<int, BoundingBox> objects = new();
     private Dictionary<int, float> lastSeen = new();
 
-    private int nextId = 0;
-
-    private float matchDistance = 1.0f;
-    private float timeout = 1.0f;
+    private int _nextId = 0;
+    private readonly float _matchDistance = 1.0f;
+    private readonly float _timeout = 1.0f;
     private Material _material;
 
     private void Awake()
     {
         _material = new Material(Shader.Find("Sprites/Default"));
+        _material.SetColor("_BaseColor", Color.yellow);
     }
 
     private void Update()
@@ -41,19 +41,17 @@ public class DetectionVisualizer : MonoBehaviour
     // ==========================
     public void OnObjects3D(DetectionObjectArrayFrame msg)
     {
-        float now = Time.time;
-
+        var now = Time.time;
         foreach (var obj in msg.DetectionObjects)
         {
             Vector3 pos = RosToUnity(obj.Pose.Position);
 
-            int id = FindMatch(pos);
-
+            var id = FindMatch(pos);
             if (id == -1)
             {
                 id = CreateBBox(pos);
             }
-            Debug.Log($"{obj.Class_Id} - {obj.Confidence} -  {obj.Pose.Position}");
+            
             UpdateBBox(id, pos);
             lastSeen[id] = now;
         }
@@ -67,10 +65,10 @@ public class DetectionVisualizer : MonoBehaviour
     int CreateBBox(Vector3 pos)
     {
         var bbox = Instantiate(bboxPrefab, pos, Quaternion.identity);
-        bbox.Initialize(_material);
+        bbox.Initialize(_material, Color.yellow);
         bbox.transform.SetParent(transform);
         
-        int id = nextId++;
+        int id = _nextId++;
         objects[id] = bbox;
 
         return id;
@@ -89,12 +87,12 @@ public class DetectionVisualizer : MonoBehaviour
     // ==========================
     // MATCHING (임시 tracking)
     // ==========================
-    int FindMatch(Vector3 pos)
+    private int FindMatch(Vector3 pos)
     {
         foreach (var kv in objects)
         {
             float dist = Vector3.Distance(kv.Value.transform.position, pos);
-            if (dist < matchDistance)
+            if (dist < _matchDistance)
                 return kv.Key;
         }
         return -1;
@@ -103,13 +101,13 @@ public class DetectionVisualizer : MonoBehaviour
     // ==========================
     // CLEANUP
     // ==========================
-    void Cleanup(float now)
+    private void Cleanup(float now)
     {
         List<int> remove = new();
 
         foreach (var kv in lastSeen)
         {
-            if (now - kv.Value > timeout)
+            if (now - kv.Value > _timeout)
             {
                 Destroy(objects[kv.Key].gameObject);
                 remove.Add(kv.Key);
@@ -126,7 +124,7 @@ public class DetectionVisualizer : MonoBehaviour
     // ==========================
     // ROS → Unity 변환
     // ==========================
-    Vector3 RosToUnity(Point point)
+    private Vector3 RosToUnity(Point point)
     {
         return new Vector3(
             -(float)point.Y,

@@ -6,6 +6,9 @@ from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
 from tf2_ros import TransformBroadcaster
 
+from lifecycle_msgs.msg import Transition
+from lifecycle_msgs.srv import ChangeState, GetState
+
 """
 TODO: Diff drive
 Manual Driving 기준:
@@ -32,6 +35,17 @@ class OdometryLifecycleNode(LifecycleNode):
         self.last_cmd_time = None
 
         self.timer = None
+
+        # Odom service
+        self.odom_client = self.create_client(
+            ChangeState,
+            '/odometry_node/change_state'
+        )
+
+        self.odom_state_client = self.create_client(
+            GetState,
+            '/odometry_node/get_state'
+        )
 
     # ==============================
     # CONFIGURE
@@ -102,7 +116,6 @@ class OdometryLifecycleNode(LifecycleNode):
 
         return TransitionCallbackReturn.SUCCESS
 
-
     # ==============================
     # CMD CALLBACK
     # ==============================
@@ -165,10 +178,25 @@ class OdometryLifecycleNode(LifecycleNode):
         
         self.odom_pub.publish(odom)
 
+
+    def _cleanup(self):
+        pass
+
 def main():
     rclpy.init()
     node = OdometryLifecycleNode()
     executor = rclpy.executors.SingleThreadedExecutor()
     executor.add_node(node)
-    executor.spin()
-    rclpy.shutdown()
+
+    try: 
+        executor.spin()
+    except KeyboardInterrupt:
+        node.get_logger().info("Shutdown requested (Ctrl+C)")
+    finally:
+        try:
+            node._cleanup()
+        except Exception as e:
+            node.get_logger().warn(f"Lifecycle shutdown failed: {e}")
+
+        executor.shutdown()
+        node.destroy_node()

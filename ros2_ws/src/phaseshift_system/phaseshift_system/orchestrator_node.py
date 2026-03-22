@@ -14,6 +14,7 @@ from phaseshift_interfaces.srv import NavigateToGoal
 
 from phaseshift_control.slam_controller import SlamController
 from phaseshift_control.nav2_controller import Nav2Controller
+from phaseshift_control.odometry_controller import OdometryController
 from phaseshift_control.perception_controller import PerceptionController
 
 from .system_state_publisher import SystemStatePublisher
@@ -44,22 +45,12 @@ class OrchestratorNode(Node):
         self._system_publisher = SystemStatePublisher(self)
         self.slam_controller = SlamController(self)
         self.nav2_controller = Nav2Controller(self)
+        self.odom_controller = OdometryController(self)
         self.perception_controller = PerceptionController(self)
-
+    
         # Map Manager
         self.map_manager = MapManager()
         self._map_yaml = None
-
-        # Odom service
-        self.odom_client = self.create_client(
-            ChangeState,
-            '/odometry_node/change_state'
-        )
-
-        self.odom_state_client = self.create_client(
-            GetState,
-            '/odometry_node/get_state'
-        )
 
         # Services
         self.save_map_srv = self.create_service(
@@ -85,9 +76,6 @@ class OrchestratorNode(Node):
 
         self.localization_active = False
         self.initial_pose_sent = False
-        
-        self.is_odom_active = False
-        self._odom_future = None
 
         # initial pose publisher
         self.initial_pose_pub = self.create_publisher(
@@ -129,7 +117,7 @@ class OrchestratorNode(Node):
         elif phase == SystemPhase.SYSTEM_INITIALIZING:
             self.get_logger().info("[Init]Checking map availability...")
             self._has_map = self.map_manager.has_map()
-            self.activate_odom()
+            self.odom_controller.activate()
 
         elif phase == SystemPhase.SLAM_PREPARING:
             self.get_logger().info("[SLAM]Waiting for SLAM readiness...")
@@ -169,7 +157,7 @@ class OrchestratorNode(Node):
         # INIT → CONNECTING or NAV_READY
         if self.phase == SystemPhase.SYSTEM_INITIALIZING:
 
-            if not self.is_odom_active:
+            if not self.odom_controller.is_active():
                 return
 
             if self._has_map:
@@ -237,25 +225,14 @@ class OrchestratorNode(Node):
                 self.get_logger().info(f"Waiting for perception controller ready, current {self.perception_controller.state}")                
                 return
 
-            self.get_logger().info(f"==========")            
-            self.get_logger().info(f"==========")            
-            self.get_logger().info(f"==========")            
-            self.get_logger().info(f"READYREADY")
-            self.get_logger().info(f"==========")            
-            self.get_logger().info(f"==========")            
-            self.get_logger().info(f"==========")            
-
-            self.get_logger().info(f'Perception State {self.perception_controller.state}')
-
             # nav2 configure and activate
             if self.nav2_controller.is_ready() and self.perception_controller.is_active():
+                self.get_logger().info(f"NAV Phase Ready to use")            
                 self.set_phase(SystemPhase.NAV_READY)
-
-            return
+                return
 
         if self.phase == SystemPhase.NAV_EXECUTING:
             result = self.nav2_controller.update_navigation()
-
             if result == "SUCCEEDED":
                 self.set_phase(SystemPhase.NAV_READY)
             elif result == "FAILED":
@@ -265,120 +242,8 @@ class OrchestratorNode(Node):
     # ==================================================
     # System State Publishing
     # ==================================================
-
     def publish_state(self, phase: SystemPhase):
         self._system_publisher.publish(phase.value)
-
-    # ==================================================
-    # Odom State Publishing
-    # ==================================================
-    def activate_odom(self):
-            
-        if not self.odom_client.wait_for_service(timeout_sec=2.0):
-                self.get_logger().warn("Odom lifecycle service not available")
-                return
-
-        self.get_logger().info("Configuring odom node...")
-
-        req = ChangeState.Request()
-        req.transition.id = Transition.TRANSITION_CONFIGURE
-
-        self._odom_future = self.odom_client.call_async(req)
-        self._odom_future.add_done_callback(self._on_odom_configured)
-
-    def deactivate_odom(self):
-    
-        if not self.odom_client.wait_for_service(timeout_sec=2.0):
-                self.get_logger().warn("Odom lifecycle service not available")
-                return
-
-        self.get_logger().info("Deactivating odom node...")
-
-        req = ChangeState.Request()
-        req.transition.id = Transition.TRANSITION_DEACTIVATE
-
-        self._odom_future = self.odom_client.call_async(req)
-        self._odom_future.add_done_callback(self._on_odom_deactivate)
-        self.odom_client.call_async(req)
-
-    # -----------------------------
-    # Callbacks
-    # -----------------------------
-    def _on_odom_configured(self, future):
-        
-        try:
-            result = future.result()
-        except Exception as e:
-            self.get_logger().error(f"Odom configure failed: {e}")
-            return
-
-        if not result.success:
-            self.get_logger().error("Odom configure failed (response false)")
-            return
-
-        self.get_logger().info("[Odom] CONFIGURED, activating...")
-
-        req = ChangeState.Request()
-        req.transition.id = Transition.TRANSITION_ACTIVATE
-
-        future = self.odom_client.call_async(req)
-        future.add_done_callback(self._on_odom_activated)
-
-    # -----------------------------
-
-    def _on_odom_activated(self, future):
-
-        try:
-            result = future.result()
-        except Exception as e:
-            self.get_logger().error(f"Odom activate failed: {e}")
-            return
-
-        if not result.success:
-            self.get_logger().error("Odom activate failed (response false)")
-            return
-
-        self.get_logger().info("[Odom] ACTIVE")
-        self.is_odom_active = True
-
-    # -----------------------------
-
-    def _on_odom_deactivate(self, future):
-        
-        try:
-            result = future.result()
-        except Exception as e:
-            self.get_logger().error(f"Odom deactivate failed: {e}")
-            return
-
-        if not result.success:
-            self.get_logger().error("Odom deactivate failed (response false)")
-            return
-
-        self.get_logger().info("[Odom] DEACTIVATED, cleaning up...")
-
-        req = ChangeState.Request()
-        req.transition.id = Transition.TRANSITION_CLEANUP
-        self.is_odom_active = False
-
-        future = self.odom_client.call_async(req)
-        future.add_done_callback(self._on_odom_cleanup)
-
-    # -----------------------------
-
-    def _on_odom_cleanup(self, future):
-
-        try:
-            result = future.result()
-        except Exception as e:
-            self.get_logger().error(f"Odom cleanup failed: {e}")
-            return
-
-        if not result.success:
-            self.get_logger().error("Odom cleanup failed (response false)")
-            return
-
-        self.get_logger().info("[Odom] CLEANUP")
 
     # ==================================================
     # System Service
@@ -418,7 +283,6 @@ class OrchestratorNode(Node):
     def on_map_save_failed(self):
         self.set_phase(SystemPhase.SLAM_ACTIVE)
 
-
     def handle_set_goal(self, request, response):
         if self.phase != SystemPhase.NAV_READY:
             response.success = False
@@ -440,7 +304,6 @@ class OrchestratorNode(Node):
 
     def handle_navigate(self, request, response):
         pass
-
 
     # ======================================================
     # Utility
@@ -474,10 +337,8 @@ def main(args=None):
     
     except KeyboardInterrupt:
         node.get_logger().info("Keyboard Interrupt (Ctrl+C)")
-
     except Exception as e:
         print(f"Destroy error: {e}")
-        
     finally:
         node.destroy_node()
         rclpy.shutdown()

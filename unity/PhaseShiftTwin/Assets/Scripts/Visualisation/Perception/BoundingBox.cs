@@ -26,11 +26,14 @@ public class BoundingBox : MonoBehaviour
         }
     }
 
-    public void Initialize(Material sharedMaterial)
+    public void Initialize(Material sharedMaterial, Color lineColor)
     {
         for (int i = 0; i < EDGE_COUNT; i++)
         {
             _lineRenderers[i].sharedMaterial = sharedMaterial;
+            
+            _lineRenderers[i].startColor = lineColor;
+            _lineRenderers[i].endColor = lineColor;
         }
     }
 

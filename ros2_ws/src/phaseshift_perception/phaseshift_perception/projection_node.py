@@ -28,7 +28,7 @@ class ProjectionNode(LifecycleNode):
         self._sub_info = None
         self._pub_objects = None
 
-        self._latest_depth = None
+        self._latest_depth = None 
         self._latest_depth_header = None
         self._camera_info = None
 
@@ -187,25 +187,41 @@ class ProjectionNode(LifecycleNode):
             if len(det.results) == 0:
                 continue
 
-            u = int(round(det.bbox.center.position.x))
-            v = int(round(det.bbox.center.position.y))
+            u_center = int(round(det.bbox.center.position.x))
+            v_center = int(round(det.bbox.center.position.y))
 
-            if not self._is_valid_pixel(u, v, width, height):
+            bbox_w = int(det.bbox.size_x)
+            bbox_h = int(det.bbox.size_y)
+
+            if not self._is_valid_pixel(u_center, v_center, width, height):
                 continue
-            
-            # ========================
-            # Far range value in unity
-            # ========================
-            depth_camera_range = 20
+
+            if bbox_w < 2 or bbox_h < 2:
+                continue
 
 
-            z = self._sample_depth_region(depth_img, u, v) * depth_camera_range
-            # z = self._sample_depth(depth_img, u, v) * depth_camera_range
+            roi = self._compute_bottom_roi(
+                u_center, v_center, bbox_w, bbox_h, width, height
+            )
+
+            z = None
+
+            if roi is not None:
+                u_min, u_max, v_min, v_max = roi
+                z = self._sample_depth_region(depth_img, u_min, u_max, v_min, v_max)
+
+            # 3) fallback: center depth
             if z is None:
-                continue
+                z = depth_img[v_center, u_center]
+                if not self._is_valid_depth(z):
+                    continue
 
-            x = (u - cx) * z / fx
-            y = (v - cy) * z / fy
+
+            depth_camera_range = 20
+            z *= depth_camera_range
+
+            x = (u_center - cx) * z / fx
+            y = (v_center - cy) * z / fy
 
             point_cam = PointStamped()
             point_cam.header.stamp = msg.header.stamp
@@ -215,8 +231,8 @@ class ProjectionNode(LifecycleNode):
             point_cam.point.z = float(z)
 
 
-            self.get_logger().info(f"u,v: {u},{v}")
-            self.get_logger().info(f"depth: {z}")
+            # self.get_logger().info(f"u,v: {u},{v}")
+            # self.get_logger().info(f"depth: {z}")
 
 
             try:
@@ -235,6 +251,7 @@ class ProjectionNode(LifecycleNode):
             obj = DetectedObject()
             obj.class_id = det.results[0].hypothesis.class_id
             obj.confidence = float(det.results[0].hypothesis.score)
+            
             obj.pose.position.x = point_map.point.x
             obj.pose.position.y = point_map.point.y
             obj.pose.position.z = point_map.point.z
@@ -256,26 +273,85 @@ class ProjectionNode(LifecycleNode):
 
         return float(z)
     
-    def _sample_depth_region(self, depth, u, v, w=5):
-        h, W = depth.shape[:2]
+    # def _sample_depth_region(self, depth, u, v, w=5):
+    #     h, W = depth.shape[:2]
 
-        u0 = max(0, u - w)
-        u1 = min(W, u + w)
-        v0 = max(0, v - w)
-        v1 = min(h, v + w)
+    #     u0 = max(0, u - w)
+    #     u1 = min(W, u + w)
+    #     v0 = max(0, v - w)
+    #     v1 = min(h, v + w)
 
-        patch = depth[v0:v1, u0:u1]
+    #     patch = depth[v0:v1, u0:u1]
 
-        valid = patch[np.isfinite(patch) & (patch > 0)]
+    #     valid = patch[np.isfinite(patch) & (patch > 0)]
 
-        if len(valid) == 0:
+    #     if len(valid) == 0:
+    #         return None
+
+    #     return float(np.median(valid)) 
+    
+    def _compute_bottom_roi(self, u_center, v_center, bbox_w, bbox_h, width, height):
+        
+        bbox_w = max(2, bbox_w)
+        bbox_h = max(2, bbox_h)
+
+        roi_width = max(3, int(bbox_w * 0.5))
+        roi_height = max(3, int(bbox_h * 0.25))
+
+        u_min = u_center - roi_width // 2
+        u_max = u_center + roi_width // 2
+
+        # bbox 하단 쪽에 ROI 배치
+        v_min = int(v_center + bbox_h * 0.25)
+        v_max = v_min + roi_height
+
+        # clamp
+        u_min = max(0, u_min)
+        u_max = min(width - 1, u_max)
+        v_min = max(0, v_min)
+        v_max = min(height - 1, v_max)
+
+        # 유효성 검사
+        if u_min >= u_max or v_min >= v_max:
             return None
 
-        return float(np.median(valid)) 
+        return (u_min, u_max, v_min, v_max)
+        
+    def _is_valid_depth(self, z):
+        if z is None:
+            return False
+
+        if np.isnan(z) or np.isinf(z):
+            return False
+
+        if z <= 0.0:
+            return False
+
+        return True
+        
+    def _sample_depth_region(self, depth_img, u_min, u_max, v_min, v_max):
+
+        if u_min >= u_max or v_min >= v_max:
+            return None
+
+        depth_values = []
+
+        u_samples = np.linspace(u_min, u_max, num=5, dtype=int)
+        v_samples = np.linspace(v_min, v_max, num=5, dtype=int)
+
+        for v in v_samples:
+            for u in u_samples:
+                z = depth_img[v, u]
+                if self._is_valid_depth(z):
+                    depth_values.append(float(z))
+
+        if len(depth_values) < 5:
+            return None
+
+        return float(np.median(depth_values))
 
 def main(args=None):
     rclpy.init(args=args)
-
     node = ProjectionNode()
     
     executor = rclpy.executors.SingleThreadedExecutor()
