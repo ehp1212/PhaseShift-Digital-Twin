@@ -20,10 +20,6 @@ setup(
         # urdf files
         (os.path.join('share', package_name, 'urdf'),
             glob('urdf/*')),
-
-        # config files
-        (os.path.join('share', package_name, 'config'),
-            glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

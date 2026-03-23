@@ -78,7 +78,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 715803c6863ddf065b21e76bc378e6c6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Sensor.Visualizer.SLAMGeometryMapVisualizer
+  _layerMask:
+    serializedVersion: 2
+    m_Bits: 2048
   _shader: {fileID: 4800000, guid: 558162823a0d3a05ca1a74fa1e4f54a7, type: 3}
   _pointSize: 0.2
   _maxPointCount: 200000
-  _scanRaycastSensor: {fileID: 6294662527392540139}
+  _voxelSize: 0.1
+  _heightLayers: 10
+  _heightStep: 0.5

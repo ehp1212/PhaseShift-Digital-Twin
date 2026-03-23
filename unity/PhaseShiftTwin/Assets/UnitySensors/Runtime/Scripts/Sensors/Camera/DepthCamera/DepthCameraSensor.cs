@@ -47,6 +47,9 @@ namespace UnitySensors.Sensor.Camera
         public PointCloud<PointXYZ> pointCloud { get => _pointCloud; }
         public int pointsNum { get => _pointsNum; }
 
+        private AsyncGPUReadbackRequest _request;
+        private bool _hasRequest = false;
+        
         protected override void Init()
         {
             _camera = GetComponent<UnityEngine.Camera>();
@@ -126,6 +129,29 @@ namespace UnitySensors.Sensor.Camera
 
         private bool LoadTexture()
         {
+            if (_hasRequest)
+            {
+                if (!_request.done)
+                    return false;
+
+                if (!_request.hasError)
+                {
+                    var data = _request.GetData<Color>();
+                    _texture.LoadRawTextureData(data);
+                    _texture.Apply();
+                }
+
+                _hasRequest = false;
+                return true;
+            }
+
+            // 요청이 없을 때만 새로 요청
+            _request = AsyncGPUReadback.Request(_rt, 0);
+            _hasRequest = true;
+
+            return false;
+            
+            /* This version waits all readback requests */
             bool result = false;
             AsyncGPUReadback.Request(_rt, 0, request => {
                 if (request.hasError)

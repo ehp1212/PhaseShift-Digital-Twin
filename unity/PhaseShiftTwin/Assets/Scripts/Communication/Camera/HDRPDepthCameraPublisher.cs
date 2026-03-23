@@ -7,51 +7,48 @@ using UnityEngine.Rendering;
 
 namespace Communication.Camera
 {
-    public class HDRPDepthCameraPublisher : Publisher<Image>
+    public class HDRPDepthCameraPublisher : CameraPublisher<Image>
     {
         [SerializeField] private RenderTexture _depthRenderTexture;
         [SerializeField] private ComputeShader _depthToPointShader;
-        
-        [SerializeField] protected float _minRange = 0.05f;
-        [SerializeField] protected float _maxRange = 100.0f;
         
         [Header("Point Cloud")]
         [SerializeField] private bool _publishPointCloud = true;
         [SerializeField] private string _pcTopicName = "/camera/depth/points";
 
         private IPublisher<PointCloud2> _pointCloudPublisher;
-        private UnityEngine.Camera _camera;
         private ComputeBuffer _pointBuffer;
         private ComputeBuffer _depthBuffer;
         private int _kernel;
-
+        private Image _msg;
+        private byte[] _bytes;
+        
         protected override void Awake()
         {
             base.Awake();
+        }
+
+        protected override void Start()
+        {
+            // Set source data before setting camera info node in parent
+            sourceTexture = _depthRenderTexture;
+            if (sourceTexture == null)
+                Debug.LogError($"{nameof(RGBCompressedImagePublisher)} requires a {nameof(sourceTexture)}");
             
-            if (_depthRenderTexture == null)
-            {
-                Debug.LogError($"Cannot visulzie depth camera without Depth Render Texture.");
-                return;
-            }
-            
-            _camera = GetComponent<UnityEngine.Camera>();
-            _camera.nearClipPlane = _minRange;
-            _camera.farClipPlane = _maxRange;
-            
-            var width = _depthRenderTexture.width;
-            var height = _depthRenderTexture.height;
-            
-            _pointBuffer = new ComputeBuffer(_depthRenderTexture.width * _depthRenderTexture.height, sizeof(float) * 3);
-            _depthBuffer = new ComputeBuffer(_depthRenderTexture.width * _depthRenderTexture.height, sizeof(float));
+            base.Start();
+
+            _pointBuffer = new ComputeBuffer(sourceTexture.width * sourceTexture.height, sizeof(float) * 3);
+            _depthBuffer = new ComputeBuffer(sourceTexture.width * sourceTexture.height, sizeof(float));
             _kernel = _depthToPointShader.FindKernel("CSMain");
             
-            _depthToPointShader.SetTexture(_kernel, "depthTexture", _depthRenderTexture);
+            _depthToPointShader.SetTexture(_kernel, "depthTexture", sourceTexture);
             _depthToPointShader.SetBuffer(_kernel, "pointsBuffer", _pointBuffer);
             _depthToPointShader.SetBuffer(_kernel, "flippedDepthBuffer", _depthBuffer);
             
             _depthToPointShader.SetInt("width", width);
             _depthToPointShader.SetInt("height", height);
+            
+            _depthToPointShader.SetFloat("range", renderCamera.farClipPlane);
             
             SetupIntrinsics();
         }
@@ -59,6 +56,17 @@ namespace Communication.Camera
         protected override void OnInitialize()
         {
             base.OnInitialize();
+            
+            _msg = new Image();
+            _msg.Header = new Header();
+            _msg.Header.Frame_id = FrameId;
+            
+            _msg.Width = (uint)width;
+            _msg.Height = (uint)height;
+
+            _msg.Encoding = "32FC1";
+            _msg.Is_bigendian = 0;
+            _msg.Step = _msg.Width * sizeof(float);
             
             // Point Cloud
             if (!_publishPointCloud) return;
@@ -68,10 +76,7 @@ namespace Communication.Camera
 
         private void SetupIntrinsics()
         {
-            var width = _depthRenderTexture.width;
-            var height = _depthRenderTexture.height;
-            
-            var fy = height / (2.0f * Mathf.Tan(_camera.fieldOfView * Mathf.Deg2Rad * 0.5f));
+            var fy = height / (2.0f * Mathf.Tan(renderCamera.fieldOfView * Mathf.Deg2Rad * 0.5f));
             var fx = fy;
 
             var cx = width * 0.5f;
@@ -85,9 +90,6 @@ namespace Communication.Camera
 
         protected override void Publish()
         {
-            var width = _depthRenderTexture.width;
-            var height = _depthRenderTexture.height;
-
             var tx = Mathf.CeilToInt(width / 8.0f);
             var ty = Mathf.CeilToInt(height / 8.0f);
             _depthToPointShader.Dispatch(_kernel, tx, ty, 1);
@@ -102,32 +104,36 @@ namespace Communication.Camera
             });
 
             // Point could
-            if (!_publishPointCloud) return;
-            AsyncGPUReadback.Request(_pointBuffer, OInPointsReady);
+            if (_publishPointCloud)
+            {
+                AsyncGPUReadback.Request(_pointBuffer, OInPointsReady);
+            }
         }
 
         private void PublishDepthImage(NativeArray<float> raw)
         {
-            var msg = new Image();
+            if (!Ros2System.IsOk) return;
             
-            msg.Header = new Header();
-            msg.Header.Frame_id = FrameId;
-            
-            msg.Width = (uint)_depthRenderTexture.width;
-            msg.Height = (uint)_depthRenderTexture.height;
-
-            msg.Encoding = "32FC1";
-            msg.Is_bigendian = 0;
-            
-            msg.Step = msg.Width * sizeof(float);
-
-            var size = raw.Length * sizeof(float);
-            msg.Data = new byte[size];
+            if (_bytes == null || _bytes.Length != raw.Length * sizeof(float))
+                _bytes = new byte[raw.Length * sizeof(float)];
 
             var rawBytes = raw.Reinterpret<byte>(sizeof(float));
-            rawBytes.CopyTo(msg.Data);
+            rawBytes.CopyTo(_bytes);
+            
+            _msg.Data = _bytes;
+            // UpdateTimeStamp(ref _msg);
+            publisher.Publish(_msg);
+            
+            // Publish Camera info
+            base.Publish();
+        }
+        
+        private void UpdateTimeStamp(ref Image image)
+        {
+            var clockMsg = new rosgraph_msgs.msg.Clock();
+            Node.clock.UpdateClockMessage(ref clockMsg);
 
-            publisher.Publish(msg);
+            image.UpdateHeaderTime(clockMsg.Clock_.Sec, clockMsg.Clock_.Nanosec);
         }
 
         private void OInPointsReady(AsyncGPUReadbackRequest req)
@@ -143,8 +149,8 @@ namespace Communication.Camera
             msg.Header.Frame_id = FrameId;
             // Time
 
-            msg.Width = (uint)_depthRenderTexture.width;
-            msg.Height = (uint)_depthRenderTexture.height;
+            msg.Width = (uint)width;
+            msg.Height = (uint)height;
             
             msg.Is_bigendian = false;
             msg.Is_dense = true;
@@ -157,7 +163,9 @@ namespace Communication.Camera
             msg.Fields[1] = CreateField("y", 4);
             msg.Fields[2] = CreateField("z", 8);
             msg.Data = rawBytes.ToArray();
-            
+
+            if (!Ros2System.IsOk) return;
+
             _pointCloudPublisher.Publish(msg);
         }
         
@@ -168,10 +176,10 @@ namespace Communication.Camera
                 _pointBuffer.Release();
         }
         
-        private PointField CreateField(string name, uint offset)
+        private PointField CreateField(string fieldName, uint offset)
         {
             var f = new PointField();
-            f.Name = name;                 
+            f.Name = fieldName;                 
             f.Offset = offset;
             f.Datatype = PointField.FLOAT32;
             f.Count = 1;

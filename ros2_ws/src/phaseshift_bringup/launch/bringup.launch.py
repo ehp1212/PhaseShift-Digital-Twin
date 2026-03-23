@@ -36,38 +36,14 @@ def generate_launch_description():
     # ==========================
     # Nav2 
     # ==========================
-    nav2_launch = IncludeLaunchDescription(
+    nav_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
-                get_package_share_directory('nav2_bringup'),
+                get_package_share_directory('phaseshift_control'),
                 'launch',
-                'navigation_launch.py'
+                'control.launch.py'
             )
-        ),
-        launch_arguments={
-            'use_sim_time': 'false',
-            'autostart': 'false',
-            'params_file': 
-            # os.path.join(pkg_bringup, 'config', 'nav2.yaml'
-            os.path.join(pkg_bringup, 'config', 'nav2.yaml'),
-            'map': ''
-        }.items()
-    )
-
-    nav2_local_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(
-                get_package_share_directory('nav2_bringup'),
-                'launch',
-                'localization_launch.py'
-            )
-        ),
-        launch_arguments={
-            'use_sim_time': 'false',
-            'autostart': 'false',
-            'params_file': os.path.join(pkg_bringup, 'config', 'nav2.yaml'),
-            'map': ''  # dummy
-        }.items()
+        )
     )
 
     # ==========================
@@ -78,6 +54,19 @@ def generate_launch_description():
         executable="costmap_adapter_node",
         name="costmap_adapter",
         output="screen"
+    )
+
+    # ==========================
+    # Perception Layer
+    # ==========================
+    perception_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('phaseshift_perception'),
+                'launch',
+                'perception.launch.py'
+            )
+        )
     )
 
     # ==========================
@@ -93,8 +82,8 @@ def generate_launch_description():
     return LaunchDescription([
         robot_state_publisher,
         odom_node,
-        nav2_launch,
-        nav2_local_launch,
         costmap_node,
+        nav_launch,
+        perception_launch,
         orchestrator
     ])

@@ -1,6 +1,8 @@
 import rclpy
 import math
 
+from enum import Enum, auto
+
 from typing import Callable, Dict, List, Optional
 from rclpy.action import ActionClient
 from lifecycle_msgs.srv import ChangeState, GetState
@@ -9,6 +11,15 @@ from nav2_msgs.srv import LoadMap
 from nav2_msgs.action import NavigateToPose, ComputePathToPose
 from geometry_msgs.msg import Quaternion, PoseStamped
 from phaseshift_interfaces.msg import NavigationFeedback
+
+class NavControllerState(Enum):
+
+    IDLE = auto()
+    RUNNING = auto()
+    SUCCEEDED = auto()
+    CANCELED = auto()
+    FAILED = auto()
+    ERROR = auto()
 
 def yaw_to_quaternion(yaw: float) -> Quaternion:
     q = Quaternion()
@@ -34,15 +45,6 @@ class Nav2Controller:
     ]
 
     DEACTIVATE_ORDER = list(reversed(CONFIGURE_ORDER))
-
-    def is_configured(self) -> bool:
-        return self._configured
-    
-    def is_activated(self) -> bool:
-        return self._activated
-    
-    def is_map_loaded(self) -> bool:
-        return self._map_loaded
 
     def __init__(self, node):
         self.node = node
@@ -98,6 +100,7 @@ class Nav2Controller:
         )
 
         self._distance_remaining = None
+        self._state = NavControllerState.IDLE
 
         # -----------------------------
         # Internal operation state
@@ -117,8 +120,16 @@ class Nav2Controller:
         self._on_failure: Optional[Callable[[str], None]] = None
 
         self._configured = False
-        self._activated = False
+        self._is_configuring = False
+
+        self._localization_active = False
+        self._is_localization_activating = False
+
         self._map_loaded = False
+        self._map_loading = False
+
+        self._activated = False
+        self._activating = False
 
         # single-thread executor safe polling timer
         self._timer = self.node.create_timer(0.1, self._poll)
@@ -132,32 +143,48 @@ class Nav2Controller:
             self._configured
             and self._activated
         )
-
-    def configure_nav2(self):
-
-        def on_configure_success():
-            self.node.get_logger().info("[Nav2] Configure complete")
-            self._configured = True
-
-        self.configure(
-            on_success=on_configure_success,
-            on_failure=lambda e: self.node.get_logger().error(f"Configure failed: {e}")
-        )
+    
+    def is_error(self):
+        return self._state is NavControllerState.ERROR
+    
+    def is_map_loaded(self) -> bool:
+        return self._map_loaded
+    
+    def is_activated(self) -> bool:
+        return self._activated
+    
+    def is_localization_ready(self) -> bool:
+        self._configure_nav2()    
+        if not self._configured:
+            return False
+        
+        self._activate_localization()
+        if not self._localization_active:
+            return False
+        
+        return True
+    
+    def is_navigation_ready(self) -> bool:
+        self.activate_navigation()
+        if not self.is_activated():
+            return False
+        
+        return True
 
     def deactivate_nav2(self):
    
-        self.node.get_logger().info("[Nav2] deactivating Nav2 stack")
+        self.node.get_logger().info("[NAV2] deactivating Nav2 stack")
 
         def on_cleanup_success():
-            self.node.get_logger().info("[Nav2] Cleanup complete")
+            self.node.get_logger().info("[NAV2] Cleanup complete")
             self._configured = False
             self._activated = False
 
         def on_cleanup_failure(err: str):
-            self.node.get_logger().error(f"[Nav2] Cleanup failed: {err}")
+            self.node.get_logger().error(f"[NAV2] Cleanup failed: {err}")
 
         def on_deactivate_success():
-            self.node.get_logger().info("[Nav2] Deactivate complete")
+            self.node.get_logger().info("[NAV2] Deactivate complete")
             self.activate = False
 
             # Clean up after deactivate
@@ -167,19 +194,24 @@ class Nav2Controller:
             )
 
         def on_deactivate_failure(err: str):
-            self.node.get_logger().error(f"[Nav2] Deactivate failed: {err}")
+            self.node.get_logger().error(f"[NAV2] Deactivate failed: {err}")
 
         self.deactivate(
             on_success=on_deactivate_success,
             on_failure=on_deactivate_failure
         )
 
-
     def load_map_nav2(self, map_yaml):
 
+        if self._map_loaded or self._map_loading:
+            return
+
+        self._map_loading = True
+
         def on_success():
-            self.node.get_logger().info("[Nav2] map loaded")
+            self.node.get_logger().info("[NAV2] map loaded")
             self._map_loaded = True
+            self._map_loading = False
 
         self.load_map(
             map_yaml_path=map_yaml,
@@ -187,26 +219,17 @@ class Nav2Controller:
             on_failure=lambda e: self.node.get_logger().error(e)
         )
 
-
-    def activate_localization(self):
-
-        def on_success():
-            self.node.get_logger().info("[Nav2] map_server + amcl active")
-
-        self._start_transition_operation(
-            op_name="activate_localization",
-            node_order=["map_server", "amcl"],
-            transition_id=self.ACTIVATE_ID,
-            expected_state="active",
-            on_success=on_success,
-            on_failure=lambda e: self.node.get_logger().error(e)
-        )
-
     def activate_navigation(self):
 
+        if self._activated or self._activating:
+            return
+        
+        self._activating = True
+
         def on_success():
-            self.node.get_logger().info("[Nav2] navigation stack active")
+            self.node.get_logger().info("[NAV2] navigation stack active")
             self._activated = True
+            self._activating = False
 
         self._start_transition_operation(
             op_name="activate_navigation",
@@ -308,7 +331,7 @@ class Nav2Controller:
         self._on_success = on_success
         self._on_failure = on_failure
 
-        self.node.get_logger().info(f"[nav2] load_map requested: {map_yaml_path}")
+        self.node.get_logger().info(f"[NAV2] load_map requested: {map_yaml_path}")
         return True
 
     def is_busy(self) -> bool:
@@ -340,11 +363,11 @@ class Nav2Controller:
         self._goal_pose = pose
 
         self.node.get_logger().info(
-            f"[Nav2] Goal set ({x:.2f}, {y:.2f}, yaw={yaw:.2f})"
+            f"[NAV2] Goal set ({x:.2f}, {y:.2f}, yaw={yaw:.2f})"
         )
 
         # Preview
-        self.compute_path()
+        self._compute_path()
 
         # Navigate
         self.navigate_to_goal()
@@ -369,87 +392,66 @@ class Nav2Controller:
         self._goal_handle = None
         self._result_future = None
 
-    def update_navigation(self):
+    def try_process_navigation_goal(self) -> bool:
 
-        # No goal request
         if self._goal_future is None:
-            return "IDLE"
-        
-        # Check goal handle
+            self._state = NavControllerState.IDLE
+            return False
+
         if self._goal_handle is None:
 
             if not self._goal_future.done():
-                return "RUNNING"
-            
+                self._state = NavControllerState.RUNNING
+                return False
+
             self._goal_handle = self._goal_future.result()
 
             if not self._goal_handle.accepted:
                 self.node.get_logger().error("[NAV2] Goal rejected")
                 self._goal_future = None
-                return "FAILED"
-            
+                self._state = NavControllerState.FAILED
+                return False
+        
             self.node.get_logger().info("[NAV2] Goal accepted")
-
-            # Result future
+            
             self._result_future = self._goal_handle.get_result_async()
-            return "RUNNING"
-
-        # Check navigation result
+            self._state = NavControllerState.RUNNING
+            return False
+        
+                # Check navigation result
         if self._result_future is not None:
 
             if not self._result_future.done():
-                return "RUNNING"
+                self._state = NavControllerState.RUNNING
+                return False
             
             result = self._result_future.result()
             status = result.status
 
             if status == 4:  # STATUS_SUCCEEDED
-                self.node.get_logger().info("[Nav2] Goal reached")
+                self.node.get_logger().info("[NAV2] Goal reached")
 
                 self._reset_navigation()
-
-                return "SUCCEEDED"
+                self._state = NavControllerState.SUCCEEDED
+                return True
 
             elif status == 6:  # STATUS_ABORTED
-                self.node.get_logger().error("[Nav2] Navigation aborted")
+                self.node.get_logger().error("[NAV2] Navigation aborted")
 
                 self._reset_navigation()
-
-                return "FAILED"
+                self._state = NavControllerState.FAILED
+                return False
 
             elif status == 5:  # STATUS_CANCELED
-                self.node.get_logger().warn("[Nav2] Navigation canceled")
+                self.node.get_logger().warn("[NAV2] Navigation canceled")
 
                 self._reset_navigation()
 
-                return "CANCELED"
+                self._state = NavControllerState.CANCELED
+                return False
         
-        return "RUNNING"
-
-    def _reset_navigation(self):
-        self._goal_future = None
-        self._goal_handle = None
-        self._result_future = None
-
-    def compute_path(self) -> bool: 
-
-        if self._goal_pose is None:
-            self.node.get_logger().error("Goal not set")
-            return False
-        
-        if not self._planner_client.wait_for_server(timeout_sec=2.0):
-            self.node.get_logger().error("Planner server not available")
-            return False
-
-        goal = ComputePathToPose.Goal()
-
-        goal.goal = self._goal_pose
-        goal.use_start = False
-        goal.planner_id = ""    
-
-        self._path_future = self._planner_client.send_goal_async(goal)
-        self.node.get_logger().info("[Nav2] ComputePathToPose requested")
-        return True
+        self._state = NavControllerState.RUNNING
+        return False
 
     # =========================================================
     # Nav Feedback
@@ -470,6 +472,69 @@ class Nav2Controller:
     # =========================================================
     # Internal operation bootstrap
     # =========================================================
+    
+    def _reset_navigation(self):
+        self._goal_future = None
+        self._goal_handle = None
+        self._result_future = None
+
+    def _compute_path(self) -> bool: 
+
+        if self._goal_pose is None:
+            self.node.get_logger().error("Goal not set")
+            return False
+        
+        if not self._planner_client.wait_for_server(timeout_sec=2.0):
+            self.node.get_logger().error("Planner server not available")
+            return False
+
+        goal = ComputePathToPose.Goal()
+
+        goal.goal = self._goal_pose
+        goal.use_start = False
+        goal.planner_id = ""    
+
+        self._path_future = self._planner_client.send_goal_async(goal)
+        self.node.get_logger().info("[NAV2] ComputePathToPose requested")
+        return True
+    
+    def _configure_nav2(self):
+
+        if self._configured or self._is_configuring:
+           return
+
+        self._is_configuring = True
+
+        def on_configure_success():
+            self.node.get_logger().info("[NAV2] Configure complete")
+            self._configured = True
+            self._is_configuring = False
+
+        self.configure(
+            on_success=on_configure_success,
+            on_failure=lambda e: self.node.get_logger().error(f"Configure failed: {e}")
+        )
+
+    def _activate_localization(self):
+
+        if self._localization_active or self._is_localization_activating:
+            return
+        
+        self._is_localization_activating = True
+
+        def on_success():
+            self.node.get_logger().info("[NAV2] map_server + amcl active")
+            self._is_localization_activating = False
+            self._localization_active = True
+
+        self._start_transition_operation(
+            op_name="activate_localization",
+            node_order=["map_server", "amcl"],
+            transition_id=self.ACTIVATE_ID,
+            expected_state="active",
+            on_success=on_success,
+            on_failure=lambda e: self.node.get_logger().error(e)
+        )
 
     def _start_transition_operation(
         self,
@@ -493,7 +558,7 @@ class Nav2Controller:
         self._on_success = on_success
         self._on_failure = on_failure
 
-        self.node.get_logger().info(f"[nav2] start {op_name}")
+        self.node.get_logger().info(f"[NAV2] start {op_name}")
         self._request_next_transition()
         return True
 
@@ -502,7 +567,7 @@ class Nav2Controller:
     # =========================================================
 
     def _poll(self):
-        self._poll_check_path()
+        # self._poll_check_path()
         self._poll_load_map()
         self._poll_transition()
         self._poll_state_verification()
@@ -533,7 +598,7 @@ class Nav2Controller:
             self._fail(f"load_map failed with code: {result.result}")
             return
 
-        self.node.get_logger().info(f"[nav2] load_map success: {self._load_map_path}")
+        self.node.get_logger().info(f"[NAV2] load_map success: {self._load_map_path}")
         self._succeed()
 
     def _poll_transition(self):
@@ -562,7 +627,7 @@ class Nav2Controller:
             return
 
         self.node.get_logger().info(
-            f"[nav2] {node_name}: transition {transition_id} accepted"
+            f"[NAV2] {node_name}: transition {transition_id} accepted"
         )
 
         self._request_get_state(node_name)
@@ -589,7 +654,7 @@ class Nav2Controller:
             return
 
         label = result.current_state.label
-        self.node.get_logger().info(f"[nav2] {node_name}: current state = {label}")
+        self.node.get_logger().info(f"[NAV2] {node_name}: current state = {label}")
 
         if label != expected:
             self._fail(f"{node_name}: expected state '{expected}', got '{label}'")
@@ -628,7 +693,7 @@ class Nav2Controller:
 
     def _request_next_transition(self):
         if not self._op_queue:
-            self.node.get_logger().info(f"[nav2] {self._op_name} complete")
+            self.node.get_logger().info(f"[NAV2] {self._op_name} complete")
             self._clear_operation_state()
             self._succeed()
             return
@@ -645,7 +710,7 @@ class Nav2Controller:
         req.transition.id = self._op_transition_id
 
         self.node.get_logger().info(
-            f"[nav2] {self._op_name}: request transition {self._op_transition_id} -> {node_name}"
+            f"[NAV2] {self._op_name}: request transition {self._op_transition_id} -> {node_name}"
         )
 
         self._op_future = client.call_async(req)
@@ -698,7 +763,7 @@ class Nav2Controller:
             callback()
 
     def _fail(self, msg: str, failure_cb: Optional[Callable[[str], None]] = None):
-        self.node.get_logger().error(f"[nav2] {msg}")
+        self.node.get_logger().error(f"[NAV2] {msg}")
 
         self._clear_operation_state()
         self._load_map_future = None

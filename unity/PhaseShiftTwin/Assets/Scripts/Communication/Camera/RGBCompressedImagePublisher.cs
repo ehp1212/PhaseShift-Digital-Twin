@@ -7,28 +7,40 @@ using UnitySensors.Sensor.Camera;
 namespace Communication.Camera
 {
     [RequireComponent(typeof(HDRPRGBCompressedCamera))]
-    public class RGBCompressedImagePublisher : Publisher<CompressedImage>
+    public class RGBCompressedImagePublisher : CameraPublisher<CompressedImage>
     {
         [SerializeField] private HDRPRGBCompressedCamera compressedCameraSensor;
         
-        private byte[] _buffer;
-        private RenderTexture _renderTexture;
-        private int _width;
-        private int _height;
-
         private Texture2D _compressedTexture;
         private byte[] _jpgBuffer;
+        private CompressedImage _msg;
+
+        protected override void Awake()
+        {
+            base.Awake();
+        }
+
+        protected override void Start()
+        {
+            // Set source data before setting camera info node in parent
+            sourceTexture = compressedCameraSensor.RenderTexture;
+            if (sourceTexture == null)
+                Debug.LogError($"{nameof(RGBCompressedImagePublisher)} requires a {nameof(sourceTexture)}");
+            
+            base.Start();
+        }
 
         protected override void OnInitialize()
         {
             base.OnInitialize();
             
-            _renderTexture = compressedCameraSensor.RenderTexture;
-            _width = _renderTexture.width;
-            _height = _renderTexture.height;
-            _buffer = new byte[compressedCameraSensor.Resolution.x * compressedCameraSensor.Resolution.y * 4];
+            _compressedTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
             
-            _compressedTexture = new Texture2D(_width, _height, TextureFormat.RGBA32, false); 
+            _msg = new CompressedImage();
+            _msg.Header = new Header();
+            _msg.Header.Frame_id = FrameId;
+
+            _msg.Format = "jpeg";
         }
 
         /* Publish data by frequency not onSensorUpdated in sensor */
@@ -40,12 +52,12 @@ namespace Communication.Camera
                 return;
             }
             
-            AsyncGPUReadback.Request(_renderTexture, 0, OnReadback);
+            AsyncGPUReadback.Request(sourceTexture, 0, OnReadback);
         }
 
         private void OnReadback(AsyncGPUReadbackRequest request)
         {
-            if (request.hasError) 
+            if (request.hasError || _compressedTexture == null) 
                 return;
             
             var raw = request.GetData<byte>();
@@ -56,20 +68,27 @@ namespace Communication.Camera
 
             _jpgBuffer = _compressedTexture.EncodeToJPG();
             PublishCompressed(_jpgBuffer);
-            
         }
 
         private void PublishCompressed(byte[] jpgBuffer)
         {
-            var msg = new CompressedImage();
+            if (!Ros2System.IsOk) return;
+            
+            _msg.Data = jpgBuffer;
 
-            msg.Header = new Header();
-            msg.Header.Frame_id = FrameId;
+            // UpdateTimeStamp(ref _msg);
+            publisher.Publish(_msg);
 
-            msg.Format = "jpeg";
-            msg.Data = jpgBuffer;
+            // Publish Camera info
+            base.Publish();
+        }
+        
+        private void UpdateTimeStamp(ref CompressedImage compressedImage)
+        {
+            var clockMsg = new rosgraph_msgs.msg.Clock();
+            Node.clock.UpdateClockMessage(ref clockMsg);
 
-            publisher.Publish(msg);
+            compressedImage.UpdateHeaderTime(clockMsg.Clock_.Sec, clockMsg.Clock_.Nanosec);
         }
     }
 }

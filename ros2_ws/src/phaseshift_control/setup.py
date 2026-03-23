@@ -13,6 +13,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/control.launch.py']),
+        ('share/' + package_name + '/config', ['config/nav2.yaml']),
         ('share/' + package_name + '/config', ['config/slam.yaml']),
     ],
 

@@ -11,6 +11,12 @@ namespace Communication
     {
         [SerializeField] private string _topicName;
         [SerializeField] private float _frequency = 10.0f;
+
+        [Header("QOS Settings")]
+        [SerializeField] private HistoryPolicy _historyPolicy = HistoryPolicy.QOS_POLICY_HISTORY_KEEP_LAST;
+        [SerializeField] private int _historyDepth = 1;
+        [SerializeField] private ReliabilityPolicy _reliabilityPolicy = ReliabilityPolicy.QOS_POLICY_RELIABILITY_RELIABLE;
+        [SerializeField] private DurabilityPolicy _durabilityPolicy = DurabilityPolicy.QOS_POLICY_DURABILITY_TRANSIENT_LOCAL;
         
         protected ROS2.Publisher<T> publisher;
         
@@ -20,6 +26,7 @@ namespace Communication
         
         public float DT => _frequency_inv;
         public float Time => _time;
+        public string TopicName => _topicName;
 
         protected override void Awake()
         {
@@ -45,8 +52,13 @@ namespace Communication
         protected override void OnInitialize()
         {
             base.OnInitialize();
+
+            var qos = new QualityOfServiceProfile();
+            qos.SetHistory(_historyPolicy, _historyDepth);
+            qos.SetReliability(_reliabilityPolicy);
+            qos.SetDurability(_durabilityPolicy);
             
-            publisher = Node.CreatePublisher<T>(_topicName);
+            publisher = Node.CreatePublisher<T>(_topicName, qos);
         }
 
         protected abstract void Publish();

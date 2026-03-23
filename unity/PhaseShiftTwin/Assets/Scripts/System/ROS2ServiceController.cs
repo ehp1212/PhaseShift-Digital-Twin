@@ -58,7 +58,7 @@ namespace System
                     Y = -worldPoint.x,
                     Yaw = 0f
                 };
-                Debug.Log($"Send a goal: {request.X} {request.Y} {request.Yaw}");
+
                 var response = await  _setGoalClient.CallAsync(request);
                 Debug.Log($"[Response : {response.Success}]  {response.Message}]");
             }
