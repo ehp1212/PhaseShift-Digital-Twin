@@ -16,7 +16,15 @@ def generate_launch_description():
         output='screen'
     )
 
+    detection_nav_adapter = Node(
+        package='phaseshift_perception',
+        executable='detection_nav_adapter',
+        name='detection_nav_adapter',
+        output='screen'
+    )    
+
     return LaunchDescription([
         yolo_node,
         projection_node,
+        detection_nav_adapter
     ])

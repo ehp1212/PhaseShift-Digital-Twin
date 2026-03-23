@@ -270,9 +270,9 @@ controller_server:
         - GoalAlign
         - RotateToGoal
 
-      BaseObstacle.scale: 0.3
-      PathDist.scale: 8.0
-      GoalDist.scale: 6.0
+      BaseObstacle.scale: 3.0
+      PathDist.scale: 4.0
+      GoalDist.scale: 3.0
       PathAlign.scale: 1.0
       GoalAlign.scale: 1.0
       RotateToGoal.scale: 0.2
@@ -346,7 +346,19 @@ local_costmap:
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
-        observation_sources: velodyne scan
+        observation_sources: perception velodyne scan
+      
+        perception:
+          topic: /perception/obstacles
+          data_type: PointCloud2
+          marking: true
+          clearing: false
+
+          min_obstacle_height: -1.0
+          max_obstacle_height: 2.0
+
+          obstacle_max_range: 100.0
+          raytrace_max_range: 120.0
 
         velodyne:
           topic: /velodyne_points

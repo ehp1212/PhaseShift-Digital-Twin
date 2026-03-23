@@ -155,7 +155,6 @@ class OrchestratorNode(Node):
 
         # INIT → CONNECTING or NAV_READY
         if self.phase == SystemPhase.SYSTEM_INITIALIZING:
-
             if not self.odom_controller.is_active():
                 return
 
@@ -188,6 +187,7 @@ class OrchestratorNode(Node):
             if self.nav2_controller.is_busy():
                 return
 
+            # Nav2 localization
             if not self.nav2_controller.is_localization_ready():
                 return
 
@@ -203,13 +203,12 @@ class OrchestratorNode(Node):
                 self.initial_pose_sent = True
                 return
 
+            # Nav2 navigation
             if not self.nav2_controller.is_navigation_ready():
                 return
             
-            if self.perception_controller.is_idle():
-                self.perception_controller.activate()
-                return
-
+            # Perception Layer
+            self.perception_controller.activate()
             if not self.perception_controller.is_active():
                 self.get_logger().info(f"Waiting for perception controller ready, current {self.perception_controller.state}")                
                 return
@@ -226,7 +225,6 @@ class OrchestratorNode(Node):
                 self.set_phase(SystemPhase.NAV_READY)
             elif result == "FAILED":
                 self.set_phase(SystemPhase.ERROR)
-
 
     # ==================================================
     # System State Publishing
@@ -266,11 +264,11 @@ class OrchestratorNode(Node):
         response.message = f"Saving map {map_name}"
         return response
 
-    def on_map_save_succeeded(self):
-        self.set_phase(SystemPhase.MAP_SAVED)
+    # def on_map_save_succeeded(self):
+    #     self.set_phase(SystemPhase.MAP_SAVED)
 
-    def on_map_save_failed(self):
-        self.set_phase(SystemPhase.SLAM_ACTIVE)
+    # def on_map_save_failed(self):
+    #     self.set_phase(SystemPhase.SLAM_ACTIVE)
 
     def handle_set_goal(self, request, response):
         if self.phase != SystemPhase.NAV_READY:

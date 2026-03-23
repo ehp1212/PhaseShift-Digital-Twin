@@ -199,30 +199,60 @@ class ProjectionNode(LifecycleNode):
             if bbox_w < 2 or bbox_h < 2:
                 continue
 
-
+            # ---------------------------
+            # Select ROI
+            # ---------------------------
             roi = self._compute_bottom_roi(
                 u_center, v_center, bbox_w, bbox_h, width, height
             )
 
-            z = None
-
+            depth_camera_range = 20
+            points = []
+        
             if roi is not None:
                 u_min, u_max, v_min, v_max = roi
-                z = self._sample_depth_region(depth_img, u_min, u_max, v_min, v_max)
 
-            # 3) fallback: center depth
-            if z is None:
-                z = depth_img[v_center, u_center]
+                # 5x5 grid sampling
+                u_samples = np.linspace(u_min, u_max, num=5, dtype=int)
+                v_samples = np.linspace(v_min, v_max, num=5, dtype=int)
+
+                for v in v_samples:
+                    for u in u_samples:
+
+                        z = depth_img[v, u] * depth_camera_range
+
+                        if not self._is_valid_depth(z):
+                            continue
+
+                        # 아직 scaling 전
+                        x = (u - cx) * z / fx
+                        y = (v - cy) * z / fy
+
+                        points.append([x, y, z])
+
+            # ---------------------------
+            # median 계산
+            # ---------------------------
+            if len(points) >= 5:
+                pts = np.array(points)
+
+                x = float(np.median(pts[:, 0]))
+                y = float(np.median(pts[:, 1]))
+                z = float(np.median(pts[:, 2]))
+
+            else:
+                # fallback (center pixel)
+                z = depth_img[v_center, u_center] * depth_camera_range
+
                 if not self._is_valid_depth(z):
                     continue
 
+                x = (u_center - cx) * z / fx
+                y = (v_center - cy) * z / fy
 
-            depth_camera_range = 20
-            z *= depth_camera_range
-
-            x = (u_center - cx) * z / fx
-            y = (v_center - cy) * z / fy
-
+            # ---------------------------
+            # TF
+            # ---------------------------
             point_cam = PointStamped()
             point_cam.header.stamp = msg.header.stamp
             point_cam.header.frame_id = self._camera_frame
@@ -233,7 +263,6 @@ class ProjectionNode(LifecycleNode):
 
             # self.get_logger().info(f"u,v: {u},{v}")
             # self.get_logger().info(f"depth: {z}")
-
 
             try:
                 point_map = self._tf_buffer.transform(
@@ -273,45 +302,73 @@ class ProjectionNode(LifecycleNode):
 
         return float(z)
     
-    # def _sample_depth_region(self, depth, u, v, w=5):
-    #     h, W = depth.shape[:2]
+    def _collect_points(self, depth_img, samples, fx, fy, cx, cy):
+        points = []
 
-    #     u0 = max(0, u - w)
-    #     u1 = min(W, u + w)
-    #     v0 = max(0, v - w)
-    #     v1 = min(h, v + w)
+        for (u, v) in samples:
 
-    #     patch = depth[v0:v1, u0:u1]
+            z = depth_img[v, u]
 
-    #     valid = patch[np.isfinite(patch) & (patch > 0)]
+            if not self._is_valid_depth(z):
+                continue
 
-    #     if len(valid) == 0:
-    #         return None
+            x = (u - cx) * z / fx
+            y = (v - cy) * z / fy
 
-    #     return float(np.median(valid)) 
+            points.append([x, y, z])
+
+        return points
+
+
+    def _estimate_median_point(self, points):
+
+        if len(points) < 5:
+            return None
+        
+        pts = np.array(points)
+
+        x = float(np.median(pts[:, 0]))
+        y = float(np.median(pts[:, 1]))
+        z = float(np.median(pts[:, 2]))
+
+        return x, y, z
     
     def _compute_bottom_roi(self, u_center, v_center, bbox_w, bbox_h, width, height):
-        
-        bbox_w = max(2, bbox_w)
-        bbox_h = max(2, bbox_h)
 
-        roi_width = max(3, int(bbox_w * 0.5))
-        roi_height = max(3, int(bbox_h * 0.25))
+        # 최소 크기 보장
+        bbox_w = max(4, bbox_w)
+        bbox_h = max(4, bbox_h)
 
-        u_min = u_center - roi_width // 2
-        u_max = u_center + roi_width // 2
+        # ---------------------------
+        # bbox 경계 계산
+        # ---------------------------
+        u_min_box = int(u_center - bbox_w / 2)
+        u_max_box = int(u_center + bbox_w / 2)
 
-        # bbox 하단 쪽에 ROI 배치
-        v_min = int(v_center + bbox_h * 0.25)
-        v_max = v_min + roi_height
+        v_min_box = int(v_center - bbox_h / 2)
+        v_max_box = int(v_center + bbox_h / 2)
 
-        # clamp
+        bottom_start_ratio = 0.3
+        bottom_end_ratio = 0.5
+
+        # 세로 ROI (bbox 내부)
+        v_min = int(v_min_box + bbox_h * bottom_start_ratio)
+        v_max = int(v_min_box + bbox_h * bottom_end_ratio)
+
+        # 가로 ROI (중앙 50%)
+        roi_width = int(bbox_w * 0.5)
+
+        u_min = int(u_center - roi_width / 2)
+        u_max = int(u_center + roi_width / 2)
+
+        # ---------------------------
+        # clamp (이미지 경계)
+        # ---------------------------
         u_min = max(0, u_min)
         u_max = min(width - 1, u_max)
         v_min = max(0, v_min)
         v_max = min(height - 1, v_max)
 
-        # 유효성 검사
         if u_min >= u_max or v_min >= v_max:
             return None
 

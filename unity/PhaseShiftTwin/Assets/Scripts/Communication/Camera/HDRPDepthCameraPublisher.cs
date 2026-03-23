@@ -57,11 +57,6 @@ namespace Communication.Camera
         {
             base.OnInitialize();
             
-            // Point Cloud
-            if (!_publishPointCloud) return;
-            
-            _pointCloudPublisher = Node.CreatePublisher<PointCloud2>(_pcTopicName);
-            
             _msg = new Image();
             _msg.Header = new Header();
             _msg.Header.Frame_id = FrameId;
@@ -72,6 +67,11 @@ namespace Communication.Camera
             _msg.Encoding = "32FC1";
             _msg.Is_bigendian = 0;
             _msg.Step = _msg.Width * sizeof(float);
+            
+            // Point Cloud
+            if (!_publishPointCloud) return;
+            
+            _pointCloudPublisher = Node.CreatePublisher<PointCloud2>(_pcTopicName);
         }
 
         private void SetupIntrinsics()

@@ -32,6 +32,7 @@ setup(
         'console_scripts': [
             'yolo_detector_node = phaseshift_perception.yolo_detector_node:main',
             'projection_node = phaseshift_perception.projection_node:main',
+            'detection_nav_adapter = phaseshift_perception.detection_nav_adapter:main',
         ],
     },
 )
