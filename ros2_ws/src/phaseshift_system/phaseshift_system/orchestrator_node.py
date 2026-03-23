@@ -23,10 +23,10 @@ from .map_manager import MapManager
 class SystemPhase(Enum):
     BOOT = 0
     SYSTEM_INITIALIZING = 1
-
+  
     SLAM_PREPARING = 2
     SLAM_ACTIVE = 3
-    MAP_SAVING = 4
+    MAP_SAVING = 4      
     MAP_SAVED = 5
 
     NAV_PREPARING = 6
@@ -135,7 +135,7 @@ class OrchestratorNode(Node):
             self.get_logger().info("[SLAM]Map saved")
 
         elif phase == SystemPhase.NAV_PREPARING:
-            pass
+            self.get_logger().info("[NAV]Waiting for NAV readiness...")
 
         elif phase == SystemPhase.ERROR:
             self.get_logger().error("System entered ERROR state")
@@ -210,7 +210,6 @@ class OrchestratorNode(Node):
             # Perception Layer
             self.perception_controller.activate()
             if not self.perception_controller.is_active():
-                self.get_logger().info(f"Waiting for perception controller ready, current {self.perception_controller.state}")                
                 return
 
             # nav2 configure and activate
@@ -220,11 +219,13 @@ class OrchestratorNode(Node):
                 return
 
         if self.phase == SystemPhase.NAV_EXECUTING:
-            result = self.nav2_controller.update_navigation()
-            if result == "SUCCEEDED":
-                self.set_phase(SystemPhase.NAV_READY)
-            elif result == "FAILED":
-                self.set_phase(SystemPhase.ERROR)
+
+            if not self.nav2_controller.try_process_navigation_goal():
+                if self.nav2_controller.is_error():
+                    self.set_phase(SystemPhase.ERROR)
+                return
+            
+            self.set_phase(SystemPhase.NAV_READY)
 
     # ==================================================
     # System State Publishing
