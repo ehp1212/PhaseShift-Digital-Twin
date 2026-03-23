@@ -5273,6 +5273,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 11217492}
     m_Modifications:
+    - target: {fileID: 1926641517796984129, guid: 7cf6e9273a2afad4483e525911b9a461, type: 3}
+      propertyPath: _publishPointCloud
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 3669101041156928953, guid: 7cf6e9273a2afad4483e525911b9a461, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0

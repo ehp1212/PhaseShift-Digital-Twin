@@ -4,15 +4,73 @@
 
 **PhaseShift-Digital-Twin** is a robotics simulation and automated testing framework built with **ROS2 and Unity**. 
 
+## Why This Project Exists
+
+When building Digital Twin systems with Unity and ROS2, one recurring problem quickly became obvious. Every time a new sensor or scenario was introduced, I had to manually rebuild simulation setups, reconnect ROS topics, and revalidate the entire pipeline.
+
+This repetitive workflow significantly slowed down iteration, especially when testing SLAM and navigation behaviors. Instead of rebuilding environments from scratch, I designed a reusable simulation framework in Unity that allows:
+
+* Rapid switching between SLAM and Navigation modes
+* Consistent validation of ROS2 pipelines
+* Reusable sensor simulation without reconfiguration
+
+The goal is not just visualization, but to create a structured, testable Digital Twin environment where robotics logic (ROS2) and simulation (Unity) are clearly separated.
+This makes the system scalable, reproducible, and suitable for real-world robotics development workflows.
+
+
 ## Overview
 
-PhaseShift-Digital-Twin is a ROS2-integrated digital twin and simulation-based validation framework designed for robotics development and testing. The project combines Unity-based real-time visualization with a ROS2-native robotics stack, where autonomy, navigation, and system lifecycle management remain fully controlled by ROS2.
+PhaseShift-Digital-Twin is a ROS2-centric Digital Twin system integrated with Unity.
 
-Rather than treating Unity as the primary simulation logic layer, this project adopts a ROS2-centric architecture in which Unity functions as a thin digital twin client for visualization, operator interaction, and test scenario generation. This separation enables clearer system boundaries between robot autonomy and simulation interfaces, making the platform easier to validate, extend, and maintain.
+* ROS2 acts as the system authority, handling SLAM, Navigation (Nav2), and orchestration.
+Unity provides real-time visualization, operator interaction, and sensor simulation.
 
-Built on top of slam_toolbox, Nav2, and a custom orchestrator node, the framework supports structured robot state management, navigation workflows, and repeatable scenario execution. In addition, it introduces an automated testing layer for validating robot behaviour in dynamic environments, including navigation scenario execution, obstacle injection, and latency monitoring across the perception-to-control pipeline.
+* The system supports two primary operational modes:
 
-The goal of this project is to provide a practical foundation for simulation-driven robotics testing, helping reduce hardware dependency during development while improving confidence in system behaviour before real-world deployment.
+### SLAM Phase
+Build maps interactively within Unity
+Store waypoints during exploration
+Generate and save occupancy maps
+
+### Navigation Phase
+Navigate to manually selected goals
+Execute waypoint-based autonomous missions
+Visualize planning, costmaps, and robot state in real time
+
+To support these workflows, the project includes GPU-optimized sensor simulation pipelines in Unity, enabling efficient generation of:
+
+* Depth data
+* Point clouds
+* Camera-based perception inputs
+
+This allows rapid testing of robotics behaviors without requiring physical hardware.
+
+
+## Dynamic Obstacle Avoidance (YOLO + Depth)
+
+This project integrates a perception-driven navigation pipeline using GPU-accelerated sensor simulation, YOLO detection, and Nav2 costmap integration.
+
+### YOLO Detection Node
+* Unity generates compressed render textures using GPU acceleration for efficient sensor simulation
+* The YOLO node decodes and processes these images using OpenCV (cv2.imdecode)
+* Produces real-time 2D detections from simulated camera input
+
+
+### Projection Node
+* Lifts 2D detections into 3D space using depth data
+* Maintains a consistent global representation (map frame)
+* Acts as the bridge between perception and spatial reasoning
+
+### Detection Navigation Adapter
+* Transforms global detections into robot-relative coordinates
+* Converts objects into point cloud obstacles
+* Publishes directly to Nav2 costmaps for real-time avoidance
+
+### Result
+* Dynamic obstacles are detected, projected, and injected into the navigation stack
+* Enables fully simulated, perception-driven obstacle avoidance without physical sensors
+
+
 
 ## System Architecture
 
@@ -56,13 +114,17 @@ subgraph Unity Digital Twin
     SENSOR --> UNITY
 end
 
-UNITY <-->|PhaseShift Phase / ROS2 Topics| ORCH
+ORCH --> STATE[System State]
+STATE --> UNITY
+
+UNITY --> CMD[Service / Action Requests]
+CMD --> ORCH
+
 OBST --> UNITY
 UI --> UNITY
 
 SCENARIO --> ORCH
 LATENCY --> ORCH
-
 ```
 
 The system architecture is organized around a ROS2-centric robotics stack with a dedicated testing layer and a Unity-based digital twin interface.
@@ -72,7 +134,6 @@ Within the ROS2 system, an Orchestrator Node manages the overall system lifecycl
 On top of the robotics stack, a lightweight testing layer introduces components such as ScenarioRunner and LatencyMonitor, enabling automated navigation scenarios and system performance measurements.
 
 Unity operates as a digital twin client, providing real-time visualization of robot state, sensor data, and navigation behaviour. It also serves as an operator interface where users can interact with the system and introduce dynamic obstacles to create test scenarios during simulation.
-
 
 ## Testing Framework
 
