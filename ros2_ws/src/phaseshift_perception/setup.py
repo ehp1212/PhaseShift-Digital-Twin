@@ -31,6 +31,7 @@ setup(
     entry_points={
         'console_scripts': [
             'yolo_detector_node = phaseshift_perception.yolo_detector_node:main',
+            'yolo_tracker_node = phaseshift_perception.yolo_tracker_node:main',
             'projection_node = phaseshift_perception.projection_node:main',
             'detection_nav_adapter = phaseshift_perception.detection_nav_adapter:main',
         ],

@@ -2,10 +2,17 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 
 def generate_launch_description():
-    yolo_node = Node(
+    yolo_detector_node = Node(
         package='phaseshift_perception',
         executable='yolo_detector_node',
         name='yolo_detector_node',
+        output='screen'
+    )
+
+    yolo_tracker_node = Node(
+        package='phaseshift_perception',
+        executable='yolo_tracker_node',
+        name='yolo_tracker_node',
         output='screen'
     )
 
@@ -24,7 +31,8 @@ def generate_launch_description():
     )    
 
     return LaunchDescription([
-        yolo_node,
+        yolo_detector_node,
+        yolo_tracker_node,
         projection_node,
         detection_nav_adapter
     ])

@@ -65,7 +65,8 @@ class ProjectionNode(LifecycleNode):
 
             self._sub_det = self.create_subscription(
                 Detection2DArray,
-                '/perception/detections_2d',
+                # '/perception/detections_2d',
+                '/perception/tracked_detections',
                 self._detection_callback,
                 qos_output
             )

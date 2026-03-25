@@ -187,7 +187,6 @@ class YoloDetectorNode(LifecycleNode):
                 if class_name not in valid_class:
                     continue
 
-
                 hyp = ObjectHypothesis()
                 hyp.class_id = class_name
                 hyp.score = float(box.conf[0])
