@@ -5,10 +5,17 @@ using Sensor.Lidar._2D;
 using Sensor.Visualizer;
 using UI;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.Events;
 
 namespace System
 {
+    public interface IROS2Interface
+    {
+        public bool Active { get; set; }
+        public void Toggle(bool active);
+    }
+    
     public class ROS2System : ROS2Behaviour
     {
         [Header("State")]
@@ -38,6 +45,12 @@ namespace System
         public OnPhaseChangedHandler OnPhaseChanged;
         
         private Dictionary<string, ROS2Node> _createdNodes = new();
+
+        public Transform nav2InterfaceHolder;
+        private List<IROS2Interface> _navInterfaces = new List<IROS2Interface>();
+        
+        public Transform nav2ExecInterfaceHolder;
+        private List<IROS2Interface> _navExecInterfaces = new List<IROS2Interface>();
         
         protected override void Awake()
         {
@@ -53,6 +66,17 @@ namespace System
 
         protected override void Start()
         {
+            var navs = nav2InterfaceHolder.GetComponents<IROS2Interface>();
+            foreach (var nav in navs)
+            {
+                _navInterfaces.Add(nav);
+            }
+            
+            var navsExec = nav2ExecInterfaceHolder.GetComponents<IROS2Interface>();
+            foreach (var nav in navsExec)
+            {
+                _navExecInterfaces.Add(nav);
+            }
         }
 
         protected override void Update()
@@ -145,6 +169,22 @@ namespace System
         public bool TryGetNode(string nName, out ROS2Node node)
         {
             return _createdNodes.TryGetValue(nName, out node);
+        }
+
+        public void ToggleNav(bool active)
+        {
+            foreach (var navInterface in _navInterfaces)
+            {
+                navInterface.Toggle(active);
+            }
+        }
+        
+        public void ToggleNavExec(bool active)
+        {
+            foreach (var navExecInterface in _navExecInterfaces)
+            {
+                navExecInterface.Toggle(active);
+            }
         }
     }
 }

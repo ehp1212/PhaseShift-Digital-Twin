@@ -1,12 +1,18 @@
-using Communication.Thread;
+using System;
 using Sensor.Visualizer;
 using UnityEngine;
 
 [RequireComponent(typeof(LocalCostmapSubscriber))]
-public class LocalCostmapVisualizer : HDRPPointCloudVisualizerProcedural
+public class LocalCostmapVisualizer : HDRPPointCloudVisualizerProcedural, IROS2Interface
 {
     private LocalCostmapSubscriber _localCostmapSubscriber;
     private PointXYZRGB[] points;
+    
+    public bool Active { get; set; }
+    public void Toggle(bool active)
+    {
+        Active = active;
+    }
 
     void Start()
     {
@@ -15,6 +21,8 @@ public class LocalCostmapVisualizer : HDRPPointCloudVisualizerProcedural
 
     protected override void Update()
     {
+        if (!Active) return;
+        
         base.Update();
         if (!_localCostmapSubscriber.dispatcher.TryDequeueLatest(out var frame))
             return;

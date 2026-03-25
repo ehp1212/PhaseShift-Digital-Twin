@@ -3,7 +3,7 @@ using phaseshift_interfaces.msg;
 using ROS2;
 using UnityEngine;
 
-public class FeedbackListener : MonoBehaviour
+public class FeedbackListener : MonoBehaviour, IROS2Interface
 {
     [SerializeField] private string _nodeName = "unity_feedback_listener";
     [SerializeField] private string _topicName = "/system/navigation_feedback";
@@ -11,6 +11,12 @@ public class FeedbackListener : MonoBehaviour
     private ROS2Node _feedbackSubNode;
     private ISubscription<NavigationFeedback> _subscription;
     private ROS2System _ros2System;
+    
+    public bool Active { get; set; }
+    public void Toggle(bool active)
+    {
+        Active = active;
+    }
     
     void Start()
     {
@@ -26,10 +32,11 @@ public class FeedbackListener : MonoBehaviour
 
     private void FeedbackCallback(NavigationFeedback msg)
     {
+        if (!Active) return;
         if (_ros2System.SystemState.Current != SystemPhases.PHASE_NAV_EXECUTING) return;
-        return;
-        Debug.Log($"Distance remaining {msg.Distance_remaining}");
+
+        /*Debug.Log($"Distance remaining {msg.Distance_remaining}");
         Debug.Log($"Navigation time {msg.Navigation_time}");
-        Debug.Log($"ETR {msg.Estimated_time_remaining}");
+        Debug.Log($"ETR {msg.Estimated_time_remaining}");*/
     }
 }

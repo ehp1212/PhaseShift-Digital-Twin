@@ -1,3 +1,4 @@
+using System;
 using Communication.Thread;
 using phaseshift_interfaces.msg;
 using UnityEngine;
@@ -17,11 +18,19 @@ namespace Communication
         public DetectionObjectFrame[] DetectionObjects;
     }
     
-    public class DetectionObjectSubscriber : ROS2Subscriber<DetectedObjectArray, DetectionObjectArrayFrame>
+    public class DetectionObjectSubscriber : ROS2Subscriber<DetectedObjectArray, DetectionObjectArrayFrame>, IROS2Interface
     {
+        public bool Active { get; set; }
+        public void Toggle(bool active)
+        {
+            Active = active;
+        }
+        
         // Start is called once before the first execution of Update after the MonoBehaviour is created
         protected override void SubscribeCallback(DetectedObjectArray msg)
         {
+            if (!Active) return;
+            
             var count = msg.Objects.Length;
             var result = new DetectionObjectArrayFrame();
             result.DetectionObjects = new DetectionObjectFrame[count];

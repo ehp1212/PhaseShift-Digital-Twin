@@ -2,7 +2,7 @@ using System;
 using UnityEngine;
 
 [RequireComponent(typeof(PathSubscriber))]
-public class PathVisualizer : MonoBehaviour
+public class PathVisualizer : MonoBehaviour, IROS2Interface
 {
     [Header("Settings")]
     [SerializeField] private PathSubscriber _pathSubscriber;
@@ -25,6 +25,12 @@ public class PathVisualizer : MonoBehaviour
     private Transform[] _stepMarkers;
     private ROS2System _ros2System;
     private bool _shouldDraw;
+    
+    public bool Active { get; set; }
+    public void Toggle(bool active)
+    {
+        Active = active;
+    }
 
     private void Awake()
     {
@@ -202,6 +208,7 @@ public class PathVisualizer : MonoBehaviour
 
     private void Update()
     {
+        if (!Active) return;
         if (!_shouldDraw) return;
         if (!_pathSubscriber.dispatcher.TryDequeueLatest(out var frame)) return;
         

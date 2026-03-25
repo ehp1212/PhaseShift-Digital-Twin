@@ -104,7 +104,7 @@ class DetectionNavAdapter(Node):
 
         # base size by class
         if class_id == "chair":
-            base = 0.4
+            base = 0.5
         elif class_id == "person":
             base = 0.3
         else:

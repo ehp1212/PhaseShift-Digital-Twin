@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Communication;
 using geometry_msgs.msg;
@@ -6,7 +7,7 @@ using Quaternion = UnityEngine.Quaternion;
 using Vector3 = UnityEngine.Vector3;
 
 [RequireComponent(typeof(DetectionObjectSubscriber))]
-public class DetectionVisualizer : MonoBehaviour
+public class DetectionVisualizer : MonoBehaviour, IROS2Interface
 {
     [Header("Settings")] 
     [SerializeField] private DetectionObjectSubscriber _objectSubscriber;
@@ -21,7 +22,13 @@ public class DetectionVisualizer : MonoBehaviour
     private readonly float _matchDistance = 1.0f;
     private readonly float _timeout = 1.0f;
     private Material _material;
-
+    
+    public bool Active { get; set; }
+    public void Toggle(bool active)
+    {
+        Active = active;
+    }
+    
     private void Awake()
     {
         _material = new Material(Shader.Find("Sprites/Default"));
@@ -30,6 +37,8 @@ public class DetectionVisualizer : MonoBehaviour
 
     private void Update()
     {
+        if (!Active) return;
+        
         if (_objectSubscriber == null) return;
         if (!_objectSubscriber.dispatcher.TryDequeueLatest(out var frame)) return;
         

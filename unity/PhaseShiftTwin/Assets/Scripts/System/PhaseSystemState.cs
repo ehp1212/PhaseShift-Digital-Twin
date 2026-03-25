@@ -80,6 +80,7 @@ namespace System
         public override void Enter()
         {
             StateLoggerUtility.LogState<SystemInitState>();
+            ros2System.ToggleNav(false);
         }
 
         public override void Exit()
@@ -224,10 +225,16 @@ namespace System
         public override void Enter()
         {
             StateLoggerUtility.LogState<NavReadyState>();
+            
+            // Local costmap sub / visual
+            // Detect sub / visual
+            ros2System.ToggleNav(true);
         }
 
         public override void Exit()
         {
+            // Clear in init phase
+            // ros2System.ToggleNav(false);
         }
 
         public override void Tick()
@@ -244,10 +251,15 @@ namespace System
 
         public override void Enter()
         {
+            // Nav Feedback 
+            // Global path
+            // Local path
+            ros2System.ToggleNavExec(true);
         }
 
         public override void Exit()
         {
+            ros2System.ToggleNavExec(false);
         }
 
         public override void Tick()

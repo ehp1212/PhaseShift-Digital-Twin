@@ -1,8 +1,7 @@
+using System;
 using Communication;
 using Communication.Thread;
-using nav_msgs.msg;
 using phaseshift_interfaces.msg;
-using TreeEditor;
 using UnityEngine;
 
 public struct CostmapFrame : IThreadFrame
@@ -18,10 +17,18 @@ public struct CostmapFrame : IThreadFrame
     public byte[] Data;
 }
 
-public class LocalCostmapSubscriber : ROS2Subscriber<CostmapGrid, CostmapFrame>
+public class LocalCostmapSubscriber : ROS2Subscriber<CostmapGrid, CostmapFrame>, IROS2Interface
 {
+    public bool Active { get; set; }
+    public void Toggle(bool active)
+    {
+        Active = active;
+    }
+    
     protected override void SubscribeCallback(CostmapGrid msg)
     {
+        if (!Active) return;
+        
         var frame = new CostmapFrame
         {
             Width = (int)msg.Width,
