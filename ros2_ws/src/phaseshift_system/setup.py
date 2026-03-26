@@ -22,6 +22,7 @@ setup(
     entry_points={
         'console_scripts': [
             'orchestrator_node = phaseshift_system.orchestrator_node:main',
+            'robot_behaviour_node = phaseshift_system.robot_behaviour_node:main',
         ],
     },
 )
