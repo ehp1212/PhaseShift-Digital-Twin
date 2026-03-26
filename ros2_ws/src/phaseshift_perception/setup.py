@@ -34,6 +34,7 @@ setup(
             'yolo_tracker_node = phaseshift_perception.yolo_tracker_node:main',
             'projection_node = phaseshift_perception.projection_node:main',
             'detection_nav_adapter = phaseshift_perception.detection_nav_adapter:main',
+            'detection_memory_node = phaseshift_perception.detection_memory_node:main',
         ],
     },
 )

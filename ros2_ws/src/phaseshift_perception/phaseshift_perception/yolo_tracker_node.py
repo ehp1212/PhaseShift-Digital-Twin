@@ -147,7 +147,7 @@ class YOLOTrackerNode(LifecycleNode):
         iou_score = self._iou(det, track['bbox'])
         dist = self._center_distance(det, track['bbox'])
 
-        return iou_score > 0.3 or dist < 50
+        return iou_score > 0.15 or dist < 20
 
     def _iou(self, det, track_bbox) -> float:
         # det bbox

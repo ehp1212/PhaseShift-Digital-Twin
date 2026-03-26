@@ -23,6 +23,13 @@ def generate_launch_description():
         output='screen'
     )
 
+    detection_memory_node = Node(
+        package='phaseshift_perception',
+        executable='detection_memory_node',
+        name='detection_memory_node',
+        output='screen'
+    )
+
     detection_nav_adapter = Node(
         package='phaseshift_perception',
         executable='detection_nav_adapter',
@@ -34,5 +41,6 @@ def generate_launch_description():
         yolo_detector_node,
         yolo_tracker_node,
         projection_node,
+        detection_memory_node,
         detection_nav_adapter
     ])
