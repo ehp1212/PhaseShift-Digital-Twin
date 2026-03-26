@@ -1,0 +1,6 @@
+geometry_msgs/PoseStamped goal
+bool use_waypoint   
+
+---
+bool accepted
+string message

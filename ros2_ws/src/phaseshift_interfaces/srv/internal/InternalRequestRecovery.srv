@@ -1,0 +1,9 @@
+uint8 type
+
+# enum
+uint8 CLEAR_COSTMAP=0
+uint8 BACKUP=1
+uint8 SPIN=2
+
+---
+bool accepted

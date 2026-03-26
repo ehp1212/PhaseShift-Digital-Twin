@@ -17,9 +17,17 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/SystemState.msg"
   "msg/DetectedObject.msg"
   "msg/DetectedObjectArray.msg"
+
+  "msg/internal/NavState.msg"
+
   "srv/SaveMap.srv"
   "srv/SetGoal.srv"
   "srv/NavigateToGoal.srv"
+
+  "srv/internal/InternalCancelNavigate.srv"
+  "srv/internal/InternalRequestNavigate.srv"
+  "srv/internal/InternalRequestRecovery.srv"
+
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs
 )
 
