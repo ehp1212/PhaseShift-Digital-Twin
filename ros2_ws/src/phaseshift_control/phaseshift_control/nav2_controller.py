@@ -5,6 +5,7 @@ from enum import Enum, auto
 
 from typing import Callable, Dict, List, Optional
 from rclpy.action import ActionClient
+from action_msgs.msg import GoalStatus
 from lifecycle_msgs.srv import ChangeState, GetState
 from lifecycle_msgs.msg import Transition
 from nav2_msgs.srv import LoadMap
@@ -100,6 +101,8 @@ class Nav2Controller:
         )
 
         self._distance_remaining = None
+        self._last_result_status = None
+
         self._state = NavControllerState.IDLE
 
         # -----------------------------
@@ -170,6 +173,18 @@ class Nav2Controller:
             return False
         
         return True
+    
+    def get_active_goal(self):
+        return self._goal_pose
+    
+    def is_succeeded(self):
+        return self._last_result_status == GoalStatus.STATUS_SUCCEEDED
+
+    def is_failed(self):
+        return self._last_result_status in [
+            GoalStatus.STATUS_ABORTED,
+            GoalStatus.STATUS_CANCELED
+        ]
 
     def deactivate_nav2(self):
    
@@ -199,24 +214,6 @@ class Nav2Controller:
         self.deactivate(
             on_success=on_deactivate_success,
             on_failure=on_deactivate_failure
-        )
-
-    def load_map_nav2(self, map_yaml):
-
-        if self._map_loaded or self._map_loading:
-            return
-
-        self._map_loading = True
-
-        def on_success():
-            self.node.get_logger().info("[NAV2] map loaded")
-            self._map_loaded = True
-            self._map_loading = False
-
-        self.load_map(
-            map_yaml_path=map_yaml,
-            on_success=on_success,
-            on_failure=lambda e: self.node.get_logger().error(e)
         )
 
     def activate_navigation(self):
@@ -333,6 +330,24 @@ class Nav2Controller:
 
         self.node.get_logger().info(f"[NAV2] load_map requested: {map_yaml_path}")
         return True
+    
+    def load_map_nav2(self, map_yaml):
+
+        if self._map_loaded or self._map_loading:
+            return
+
+        self._map_loading = True
+
+        def on_success():
+            self.node.get_logger().info("[NAV2] map loaded")
+            self._map_loaded = True
+            self._map_loading = False
+
+        self.load_map(
+            map_yaml_path=map_yaml,
+            on_success=on_success,
+            on_failure=lambda e: self.node.get_logger().error(e)
+        )
 
     def is_busy(self) -> bool:
         
@@ -378,8 +393,6 @@ class Nav2Controller:
             self.node.get_logger().error("Goal not set")
             return
         
-        # TODO: Check server is active
-        
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose = self._goal_pose
 
@@ -388,6 +401,8 @@ class Nav2Controller:
             goal_msg,
             feedback_callback=self._feedback_callback
             )
+        
+        self._goal_future.add_done_callback(self._goal_response_callback)
 
         self._goal_handle = None
         self._result_future = None
@@ -462,12 +477,34 @@ class Nav2Controller:
 
         nav_msg = NavigationFeedback()
         nav_msg.distance_remaining = feedback.distance_remaining
-        nav_msg.current_pose = feedback.current_pose.pose
         nav_msg.navigation_time = float(feedback.navigation_time.sec)
         nav_msg.estimated_time_remaining = float(feedback.estimated_time_remaining.sec)
+        nav_msg.current_pose = feedback.current_pose
         nav_msg.recovery_count = feedback.number_of_recoveries
 
         self.feedback_pub.publish(nav_msg)
+
+    def _goal_response_callback(self, future):
+
+        goal_handle = future.result()
+
+        if not goal_handle.accepted:
+            self.node.get_logger().error("Goal rejected")
+            return
+
+        self._goal_handle = goal_handle
+
+        self._result_future = goal_handle.get_result_async()
+        self._result_future.add_done_callback(self._result_callback)
+
+    def _result_callback(self, future):
+
+        result = future.result()
+        status = result.status 
+
+        self.node.get_logger().info(f"Result received: {status}")
+
+        self._last_result_status = status
     
     # =========================================================
     # Internal operation bootstrap

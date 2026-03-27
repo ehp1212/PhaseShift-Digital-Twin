@@ -8,9 +8,8 @@ from lifecycle_msgs.srv import ChangeState, GetState
 from lifecycle_msgs.msg import Transition, TransitionEvent
 from geometry_msgs.msg import PoseWithCovarianceStamped
 
-from phaseshift_interfaces.srv import SaveMap
-from phaseshift_interfaces.srv import SetGoal
-from phaseshift_interfaces.srv import NavigateToGoal
+from phaseshift_interfaces.msg import NavState, NavigationFeedback
+from phaseshift_interfaces.srv import SaveMap, SetGoal, NavigateToGoal
 
 from phaseshift_control.slam_controller import SlamController
 from phaseshift_control.nav2_controller import Nav2Controller
@@ -47,8 +46,34 @@ class OrchestratorNode(Node):
         self.nav2_controller = Nav2Controller(self)
         self.odom_controller = OdometryController(self)
         self.perception_controller = PerceptionController(self)
+
+        # ------------------------------
+        # BEHAVIOUR NODE
+        # ------------------------------
+        self._behanvior_change_state_client = self.create_client(
+            ChangeState,
+            "/robot_behaviour_node/change_state"
+        )
+
+        self._nav_state_pub = self.create_publisher(
+            NavState,
+            '/system/internal/nav_state',
+            10
+        )
+
+        self._nav2_feedback_sub = self.create_subscription(
+            NavigationFeedback,
+            "/system/navigation_feedback",
+            self._feedback_callback,
+            10
+        )
     
-        # Map Manager
+        self._latest_nav_feedback = None
+        self._distance_history = []  
+
+        # ------------------------------
+        # MAP MANAGER
+        # ------------------------------
         self.map_manager = MapManager()
         self._map_yaml = None
 
@@ -71,24 +96,24 @@ class OrchestratorNode(Node):
             self.handle_navigate
         )
 
-        # Internal state
-        self.phase = SystemPhase.BOOT
-
         self.initial_pose_sent = False
+        self._behaviour_activated = False
 
         # initial pose publisher
         self.initial_pose_pub = self.create_publisher(
             PoseWithCovarianceStamped,
             "/initialpose",
             10
+
         )
+        # Internal state
+        self.phase = SystemPhase.BOOT
 
         # Publish initial state
         self.publish_state(self.phase)
 
         # Condition loop (Hybrid: condition watcher only)
-        self.create_timer(0.5, self._check_condition_loop)
-    
+        self.create_timer(0.5, self._update)
         
     # ==================================================
     # Phase Management (Behaviour)
@@ -103,7 +128,7 @@ class OrchestratorNode(Node):
         self.on_exit(old_phase)
 
         self.phase = new_phase
-        self.get_logger().info(f"STATE → {self.phase.name}")
+        self._log_phase("ORCHESTRA NODE", f"{self.phase.name} entered...")
 
         self.on_enter(new_phase)
         self.publish_state(new_phase)
@@ -117,6 +142,8 @@ class OrchestratorNode(Node):
             self.get_logger().info("[Init]Checking map availability...")
             self._has_map = self.map_manager.has_map()
             self.odom_controller.activate()
+
+            self._behaviour_activated = False
 
         elif phase == SystemPhase.SLAM_PREPARING:
             self.get_logger().info("[SLAM]Waiting for SLAM readiness...")
@@ -137,6 +164,9 @@ class OrchestratorNode(Node):
         elif phase == SystemPhase.NAV_PREPARING:
             self.get_logger().info("[NAV]Waiting for NAV readiness...")
 
+            # Activate behaviour node
+            self._activate_behaviour_node()
+        
         elif phase == SystemPhase.ERROR:
             self.get_logger().error("System entered ERROR state")
 
@@ -144,8 +174,78 @@ class OrchestratorNode(Node):
         pass
 
     # ==================================================
-    # Condition Loop (Condition / Set Phase)
+    # UPDATE
     # ==================================================
+
+    def _update(self):
+        self._check_nav_feedback()
+        self._check_condition_loop()
+
+    def _check_nav_feedback(self):
+        if self._latest_nav_feedback is None:
+            return
+        
+        feedback = self._latest_nav_feedback
+
+        # -------------------------
+        # record distance history 
+        # -------------------------
+        self._record_distance(feedback.distance_remaining)
+
+        # -------------------------
+        # NavState 
+        # -------------------------
+        nav_state = NavState()
+        nav_state.stamp = self.get_clock().now().to_msg()
+
+        current_goal = self.nav2_controller.get_active_goal()
+        nav_state.current_goal = current_goal
+        nav_state.has_goal = current_goal is not None
+
+        # -------------------------
+        # check struck
+        # -------------------------
+        nav_state.is_stuck = self._is_stuck(feedback)
+
+        nav_state.distance_to_goal = feedback.distance_remaining
+        nav_state.remaining_path_length = feedback.distance_remaining
+
+        nav_state.navigation_time = feedback.navigation_time
+        nav_state.estimated_time_remaining = feedback.estimated_time_remaining
+
+        nav_state.current_pose = feedback.current_pose
+
+        # -------------------------
+        # check current status
+        # -------------------------
+        if not nav_state.has_goal:
+            nav_state.status = NavState.IDLE
+
+        elif self.nav2_controller.is_succeeded():
+            nav_state.status = NavState.SUCCEEDED
+
+        elif self.nav2_controller.is_failed():
+            nav_state.status = NavState.FAILED
+
+        elif nav_state.is_stuck:
+            nav_state.status = NavState.BLOCKED
+
+        elif feedback.recovery_count > 0:
+            nav_state.status = NavState.RECOVERING
+
+        else:
+            nav_state.status = NavState.MOVING
+
+        # -------------------------
+        # debug
+        # -------------------------
+        nav_state.detail = f"recovery={feedback.recovery_count}"
+
+        # -------------------------
+        # publish
+        # -------------------------
+        self._nav_state_pub.publish(nav_state)
+        self._latest_nav_feedback = None
 
     def _check_condition_loop(self):
         # BOOT → INIT
@@ -210,6 +310,10 @@ class OrchestratorNode(Node):
             # Perception Layer
             self.perception_controller.activate()
             if not self.perception_controller.is_active():
+                return
+
+            # Behaviour Node
+            if not self._behaviour_activated:
                 return
 
             # nav2 configure and activate
@@ -277,6 +381,7 @@ class OrchestratorNode(Node):
             response.message = "Only available in NAV2_READY phase"
             return response
         
+        # NAV2 controller
         self.nav2_controller.set_goal(
             x=request.x,
             y=request.y,
@@ -294,8 +399,62 @@ class OrchestratorNode(Node):
         pass
 
     # ======================================================
+    # BEHAVIOAUR NODE
+    # ======================================================
+
+    def _activate_behaviour_node(self):
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_CONFIGURE
+
+        self.get_logger().info("Configure Robot Behaviour")
+        
+        future = self._behanvior_change_state_client.call_async(req)
+        future.add_done_callback(self._on_behaviour_configured)
+
+    def _on_behaviour_configured(self, future):
+
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Robot Behaviour configure failed: {e}")
+            return
+
+        if not result.success:
+            self.get_logger().error(f"Robot Behaviour configure failed: {e}")
+            return
+
+        self.get_logger().info("[Robot Behaviour] CONFIGURED, activating...")
+
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_ACTIVATE
+
+        future = self._behanvior_change_state_client.call_async(req)
+        future.add_done_callback(self._on_behaviour_activated)    
+
+    def _on_behaviour_activated(self, future):
+
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Robot Behaviour activation failed: {e}")
+            return
+
+        if not result.success:
+            self.get_logger().error(f"Robot Behaviour activation failed")
+            return
+
+        self._behaviour_activated = True
+        self.get_logger().info("[Robot Behaviour] ACTIVATED")
+
+    def _feedback_callback(self, msg: NavigationFeedback):
+        self._latest_nav_feedback = msg
+
+    # ======================================================
     # Utility
     # ======================================================
+
+    def _log_phase(self, phase: str, msg: str):
+        self.get_logger().info(f"\033[92m[{phase}]\033[0m - {msg}")  # Green
 
     def publish_initial_pose(self):
 
@@ -312,6 +471,43 @@ class OrchestratorNode(Node):
 
         self.get_logger().info("[Nav2] Initial pose published")
 
+    def _record_distance(self, distance):
+
+        now = self.get_clock().now().nanoseconds / 1e9
+
+        self._distance_history.append((now, distance))
+
+        window_sec = 5.0
+        self._distance_history = [
+            (t, d) for (t, d) in self._distance_history
+            if now - t < window_sec
+        ]
+
+    def _is_stuck(self, feedback):
+        if feedback is None:
+            return False
+
+        if len(self._distance_history) < 2:
+            return False
+        
+        now = self.get_clock().now().nanoseconds / 1e9
+        first_time = self._distance_history[0][0]
+
+        if (now - first_time) < 3.0:
+            return False
+
+        distances = [d for (_, d) in self._distance_history]
+
+        progress = max(distances) - min(distances)
+
+        # check progress
+        no_progress = progress < 0.1
+
+        # TODO check recovering
+        recovering = feedback.recovery_count > 0
+        
+        return no_progress
+
 # ======================================================
 # Main Entry
 # ======================================================
@@ -319,6 +515,9 @@ class OrchestratorNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = OrchestratorNode()
+
+    executor = rclpy.executors.MultiThreadedExecutor() 
+    executor.add_node(node)
 
     try:
         rclpy.spin(node)

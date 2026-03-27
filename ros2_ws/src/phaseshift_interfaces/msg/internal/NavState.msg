@@ -13,8 +13,17 @@ uint8 RECOVERING=5
 float32 distance_to_goal
 float32 remaining_path_length
 
+float32 navigation_time
+float32 estimated_time_remaining
+
+geometry_msgs/PoseStamped current_pose
+
+# orchesetra
 bool has_goal
 bool is_stuck
+
+geometry_msgs/PoseStamped current_goal
+ 
 
 # debugging / extensibility
 string detail

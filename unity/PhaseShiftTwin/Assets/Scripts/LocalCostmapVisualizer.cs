@@ -78,10 +78,9 @@ public class LocalCostmapVisualizer : HDRPPointCloudVisualizerProcedural, IROS2I
         if (occ == 0)
             return 0;
 
-        var t = occ / 100f;
-
+        var t = 1f - (occ / 100f);
+        
         Color color;
-
         if (t < 0.5f)
             color = Color.Lerp(Color.blue, Color.yellow, t * 2f);
         else
