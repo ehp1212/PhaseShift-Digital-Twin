@@ -1,6 +1,7 @@
 import rclpy
 import math
 
+from dataclasses import dataclass
 from enum import Enum, auto
 
 from typing import Callable, Dict, List, Optional
@@ -15,11 +16,11 @@ from phaseshift_interfaces.msg import NavigationFeedback
 
 from .nav2_lifecycle_manager import NavLifeCycleManager
 
+@dataclass
 class NavStatus:
-    def __init__(self):
-        self.configured = False
-        self.localization = False
-        self.activated = False
+    configured: bool = False
+    localization: bool = False
+    activated: bool = False
 
 class NavControllerState(Enum):
 

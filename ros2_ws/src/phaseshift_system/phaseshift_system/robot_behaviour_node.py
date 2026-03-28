@@ -331,6 +331,7 @@ class RobotBehaviourNode(LifecycleNode):
             self._transition(BehaviourState.IDLE)
             return
 
+        self.get_logger().info("Retrunning to previous waypoint")
         self._send_nav_navigate_request(prev_goal, is_primary_goal=False)
         self._transition(BehaviourState.RETURNING)
 
