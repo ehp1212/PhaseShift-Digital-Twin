@@ -3,6 +3,7 @@ import time
 import rclpy
 from rclpy.node import Node
 from enum import Enum
+from ament_index_python.packages import get_package_share_directory
 
 from lifecycle_msgs.srv import ChangeState, GetState
 from lifecycle_msgs.msg import Transition, TransitionEvent
@@ -38,8 +39,18 @@ class OrchestratorNode(Node):
 
     def __init__(self):
         super().__init__('orchestrator')
-        self.get_logger().info("Orchestrator started")
+        self._log_phase("ORCHESTRA NODE", "Started...")
 
+        # ------------------------------
+        # PARAMETERS
+        # ------------------------------
+        self.declare_parameter("use_example_map", True)
+        self.declare_parameter("example_map_name", "demo")
+
+        self.use_example_map = self.get_parameter("use_example_map").value
+        self.example_map_name = self.get_parameter("example_map_name").value
+
+        self._log_phase("ORCHESTRA NODE - PARAM", f"use_example_map={self.use_example_map} / example_map_name={self.example_map_name}")
 
         # ------------------------------
         # CONTROLLER 
@@ -116,7 +127,11 @@ class OrchestratorNode(Node):
         # ------------------------------
         # MAP MANAGER
         # ------------------------------
-        self.map_manager = MapManager()
+        package_dir = get_package_share_directory("phaseshift_bringup")
+        package_map_dir = os.path.join(package_dir, "maps")
+        self._has_runtime_map = None
+        
+        self.map_manager = MapManager(self, package_map_dir)
         self._map_yaml = None
 
         self.initial_pose_sent = False
@@ -127,7 +142,6 @@ class OrchestratorNode(Node):
             PoseWithCovarianceStamped,
             "/initialpose",
             10
-
         )
 
         # Internal state
@@ -164,9 +178,9 @@ class OrchestratorNode(Node):
 
         elif phase == SystemPhase.SYSTEM_INITIALIZING:
             self.get_logger().info("[Init]Checking map availability...")
-            self._has_map = self.map_manager.has_map()
-            self.odom_controller.activate()
+            self._has_runtime_map = self.map_manager.has_runtime_2d_map()
 
+            self.odom_controller.activate()
             self._behaviour_activated = False
 
         elif phase == SystemPhase.SLAM_PREPARING:
@@ -283,7 +297,7 @@ class OrchestratorNode(Node):
             if not self.odom_controller.is_active():
                 return
             
-            if self._has_map:
+            if self.use_example_map or self._has_runtime_map:
                 self.set_phase(SystemPhase.NAV_PREPARING)
             else:
                 self.set_phase(SystemPhase.SLAM_PREPARING)
@@ -316,8 +330,20 @@ class OrchestratorNode(Node):
 
             # Load map
             if not self.nav2_controller.is_map_loaded():
-                map_yaml = self.map_manager.get_latest_map()
-                self.nav2_controller.load_map(map_yaml)
+
+                if self._map_yaml is None:
+
+                    if self.use_example_map:
+                        self._map_yaml = self.map_manager.resolve_2d_map(self.example_map_name, True)
+                    else:
+                        self._map_yaml = self.map_manager.get_latest_2d_map()
+
+                    if self._map_yaml is None:
+                        self.get_logger().error("No runtime map found")
+                        self.set_phase(SystemPhase.ERROR)
+                        return
+
+                self.nav2_controller.load_map(self._map_yaml)
                 return
          
             # Initial pose
@@ -382,21 +408,14 @@ class OrchestratorNode(Node):
             return response
 
         self.set_phase(SystemPhase.MAP_SAVING)
-        timestamp = int(time.time())
-        map_file = f"{map_name}_{timestamp}"
 
-        map_path = os.path.join(self.map_manager.map_directory, map_file)
-        self.slam_controller.save_map_async(map_path)
+        base_path = self.map_manager.generate_2d_map_path(map_name)
+
+        self.slam_controller.save_map_async(base_path)
 
         response.success = True
         response.message = f"Saving map {map_name}"
         return response
-
-    # def on_map_save_succeeded(self):
-    #     self.set_phase(SystemPhase.MAP_SAVED)
-
-    # def on_map_save_failed(self):
-    #     self.set_phase(SystemPhase.SLAM_ACTIVE)
 
     def handle_set_goal(self, request, response):
         if self.phase != SystemPhase.NAV_READY:

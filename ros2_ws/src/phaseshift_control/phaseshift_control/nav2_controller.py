@@ -46,7 +46,6 @@ class Nav2Controller:
 
         self.lifecycle = NavLifeCycleManager(node)
 
-
         # -----------------------------
         # Map
         # -----------------------------

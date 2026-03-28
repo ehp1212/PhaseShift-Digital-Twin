@@ -20,6 +20,10 @@ setup(
         # urdf files
         (os.path.join('share', package_name, 'urdf'),
             glob('urdf/*')),
+
+        # demo map
+        (os.path.join('share', package_name, 'maps'),
+            glob('maps/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
