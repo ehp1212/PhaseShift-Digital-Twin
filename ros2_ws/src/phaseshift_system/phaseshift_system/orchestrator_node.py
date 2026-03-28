@@ -6,10 +6,10 @@ from enum import Enum
 
 from lifecycle_msgs.srv import ChangeState, GetState
 from lifecycle_msgs.msg import Transition, TransitionEvent
-from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped
 
 from phaseshift_interfaces.msg import NavState, NavigationFeedback
-from phaseshift_interfaces.srv import SaveMap, SetGoal, NavigateToGoal
+from phaseshift_interfaces.srv import SaveMap, SetGoal, NavigateToGoal, InternalRequestNavigate, InternalCancelNavigate, InternalRequestRecovery
 
 from phaseshift_control.slam_controller import SlamController
 from phaseshift_control.nav2_controller import Nav2Controller
@@ -66,6 +66,24 @@ class OrchestratorNode(Node):
             "/system/navigation_feedback",
             self._feedback_callback,
             10
+        )
+
+        self._behaviour_request_srv = self.create_service(
+            InternalRequestNavigate,
+            '/system/internal/request_navigate',
+            self._on_behaviour_navigate_request
+        )
+
+        self._behaviour_recover_srv = self.create_service(
+            InternalRequestRecovery,
+            '/system/internal/request_recovery',
+            self._on_behaviour_recovery_request
+        )
+
+        self._behaviour_cancel_srv = self.create_service(
+            InternalCancelNavigate,
+            '/system/internal/cancel_navigate',
+            self._on_behaviour_cancel_request
         )
     
         self._latest_nav_feedback = None
@@ -394,6 +412,7 @@ class OrchestratorNode(Node):
         response.success = True
         response.message = "Goal stored"
         return response
+    
 
     def handle_navigate(self, request, response):
         pass
@@ -448,6 +467,75 @@ class OrchestratorNode(Node):
 
     def _feedback_callback(self, msg: NavigationFeedback):
         self._latest_nav_feedback = msg
+
+
+    def _on_behaviour_navigate_request(self, request, response):
+
+        self.nav2_controller.set_goal(
+            x=request.goal.x,
+            y=request.goal.y,
+            yaw=request.goal.yaw,
+            frame_id=request.goal.frame_id
+        )
+
+        self.set_phase(SystemPhase.NAV_EXECUTING)
+
+        response.success = True
+        response.message = "Goal stored"
+        return response
+    
+    def _on_behaviour_recovery_request(self, request, response):
+
+        try:
+            self.get_logger().warn("[ORCHESTRATOR] Recovery requested")
+
+            current_goal = self.nav2_controller.get_active_goal()
+
+            if current_goal is None:
+                self.get_logger().error("[RECOVERY] No active goal → cannot recover")
+                response.accepted = False
+                return response
+
+            saved_goal = current_goal
+
+            cancel_ok = self.nav2_controller.cancel_navigation()
+            if not cancel_ok:
+                self.get_logger().warn("[RECOVERY] Cancel failed or no active goal")
+
+            time.sleep(0.3)
+
+            self.nav2_controller.set_goal(
+                x=saved_goal.pose.position.x,
+                y=saved_goal.pose.position.y,
+                yaw=0.0,
+                frame_id=saved_goal.header.frame_id
+            )
+
+            self.set_phase(SystemPhase.NAV_EXECUTING)
+
+            response.accepted = True
+            response.message = "Recovery executed"
+            return response
+
+        except Exception as e:
+            self.get_logger().error(f"[RECOVERY ERROR] {str(e)}")
+            response.accepted = False
+            return response
+
+    def _on_behaviour_cancel_request(self, request, response):
+
+        self.get_logger().warn("[ORCHESTRATOR] Cancel navigation requested")
+
+        success = self.nav2_controller.cancel_navigation()
+
+        if success:
+            response.accepted = True
+            response.message = "Navigation cancelled"
+        else:
+            response.accepted = False
+            response.message = "No active navigation"
+
+        return response
 
     # ======================================================
     # Utility
@@ -507,6 +595,17 @@ class OrchestratorNode(Node):
         recovering = feedback.recovery_count > 0
         
         return no_progress
+    
+    def _start_navigation(self, goal: PoseStamped) -> tuple[bool, str]:
+        if self.phase not in [SystemPhase.NAV_READY, SystemPhase.NAV_EXECUTING]:
+            return False, "Navigation is not available in current phase"
+
+        success = self.nav2_controller.navigate_to_pose(goal)
+        if not success:
+            return False, "Failed to send goal to Nav2"
+
+        self.set_phase(SystemPhase.NAV_EXECUTING)
+        return True, "Goal sent"
 
 # ======================================================
 # Main Entry

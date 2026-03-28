@@ -76,14 +76,14 @@ class RobotBehaviourNode(LifecycleNode):
                 '/system/internal/request_navigate'
             )
 
-            self._nav_cancel_client = self.create_client(
-                InternalCancelNavigate,
-                '/system/internal/cancel_navigate'
-            )
-
             self._nav_recovery_client = self.create_client(
                 InternalRequestRecovery,
                 '/system/internal/request_recovery'
+            )
+
+            self._nav_cancel_client = self.create_client(
+                InternalCancelNavigate,
+                '/system/internal/cancel_navigate'
             )
 
             # Perception
@@ -95,8 +95,8 @@ class RobotBehaviourNode(LifecycleNode):
             )
 
             # Declare parameters
-            self.declare_parameter("max_recovery_attempts", 5)
-            self.declare_parameter("recovery_distance_threshold", 2.0)
+            self.declare_parameter("max_recovery_attempts", 2)
+            self.declare_parameter("recovery_distance_threshold", 1.0)
             self.declare_parameter("recovery_timeout_sec", 5.0)
 
             self._max_recovery_attempts = self.get_parameter(
@@ -217,7 +217,7 @@ class RobotBehaviourNode(LifecycleNode):
                 self._handle_goal_reached()
 
         elif self._state == BehaviourState.RECOVERING:
-
+          
             elapsed = (self.get_clock().now() - self._state_enter_time).nanoseconds / 1e9
 
             if elapsed < 1.0:
@@ -274,6 +274,8 @@ class RobotBehaviourNode(LifecycleNode):
             self._recovery_attempts < self._max_recovery_attempts
             and msg.distance_to_goal < self._recovery_distance_threshold
         ):
+            self.get_logger().info("Tryijng to recover")
+
             self._send_nav_recovery_request()
             self._recovery_attempts += 1
             self._transition(BehaviourState.RECOVERING)
@@ -366,6 +368,9 @@ class RobotBehaviourNode(LifecycleNode):
         future.add_done_callback(self._on_nav_cancel_response)
 
     def _send_nav_recovery_request(self):
+
+        self.get_logger().info("Send recovery request......")
+
         req = InternalRequestRecovery.Request()
         future = self._nav_recovery_client.call_async(req)
         future.add_done_callback(self._on_nav_recovery_response)

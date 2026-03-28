@@ -174,7 +174,7 @@ class Nav2Controller:
         
         return True
     
-    def get_active_goal(self):
+    def get_active_goal(self) -> PoseStamped:
         return self._goal_pose
     
     def is_succeeded(self):
@@ -467,6 +467,25 @@ class Nav2Controller:
         
         self._state = NavControllerState.RUNNING
         return False
+    
+    def cancel_navigation(self):
+        if self._goal_handle is None:
+            self.node.get_logger().warn("[NAV2] No active goal to cancel")
+            return False
+
+        self.node.get_logger().info("[NAV2] Canceling current goal")
+
+        future = self._goal_handle.cancel_goal_async()
+        future.add_done_callback(self._cancel_done_callback)
+
+        return True
+
+    def _cancel_done_callback(self, future):
+        try:
+            cancel_response = future.result()
+            self.node.get_logger().info(f"[NAV2] Cancel response: {cancel_response}")
+        except Exception as e:
+            self.node.get_logger().error(f"[NAV2] Cancel failed: {e}")
 
     # =========================================================
     # Nav Feedback
