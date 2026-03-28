@@ -40,12 +40,36 @@ class OrchestratorNode(Node):
         super().__init__('orchestrator')
         self.get_logger().info("Orchestrator started")
 
-        # Controllers
+
+        # ------------------------------
+        # CONTROLLER 
+        # ------------------------------
         self._system_publisher = SystemStatePublisher(self)
         self.slam_controller = SlamController(self)
         self.nav2_controller = Nav2Controller(self)
         self.odom_controller = OdometryController(self)
         self.perception_controller = PerceptionController(self)
+
+        # ------------------------------
+        # CONTROLLER SERVICES
+        # ------------------------------
+        self.save_map_srv = self.create_service(
+            SaveMap,
+            '/system/save_map',
+            self.handle_save_map
+        )
+
+        self.set_goal_srv = self.create_service(
+            SetGoal,
+            '/system/set_goal',
+            self.handle_set_goal
+        )
+
+        self.navigate_srv = self.create_service(
+            NavigateToGoal,
+            '/system/navigate',
+            self.handle_navigate
+        )
 
         # ------------------------------
         # BEHAVIOUR NODE
@@ -95,25 +119,6 @@ class OrchestratorNode(Node):
         self.map_manager = MapManager()
         self._map_yaml = None
 
-        # Services
-        self.save_map_srv = self.create_service(
-            SaveMap,
-            '/system/save_map',
-            self.handle_save_map
-        )
-
-        self.set_goal_srv = self.create_service(
-            SetGoal,
-            '/system/set_goal',
-            self.handle_set_goal
-        )
-
-        self.navigate_srv = self.create_service(
-            NavigateToGoal,
-            '/system/navigate',
-            self.handle_navigate
-        )
-
         self.initial_pose_sent = False
         self._behaviour_activated = False
 
@@ -124,6 +129,7 @@ class OrchestratorNode(Node):
             10
 
         )
+
         # Internal state
         self.phase = SystemPhase.BOOT
 
@@ -273,9 +279,10 @@ class OrchestratorNode(Node):
 
         # INIT → CONNECTING or NAV_READY
         if self.phase == SystemPhase.SYSTEM_INITIALIZING:
+
             if not self.odom_controller.is_active():
                 return
-
+            
             if self._has_map:
                 self.set_phase(SystemPhase.NAV_PREPARING)
             else:
@@ -302,17 +309,15 @@ class OrchestratorNode(Node):
         # ==================================================
 
         if self.phase == SystemPhase.NAV_PREPARING:
-            if self.nav2_controller.is_busy():
-                return
 
             # Nav2 localization
             if not self.nav2_controller.is_localization_ready():
                 return
 
             # Load map
-            map_yaml = self.map_manager.get_latest_map()
-            self.nav2_controller.load_map_nav2(map_yaml)
             if not self.nav2_controller.is_map_loaded():
+                map_yaml = self.map_manager.get_latest_map()
+                self.nav2_controller.load_map(map_yaml)
                 return
          
             # Initial pose
@@ -342,7 +347,7 @@ class OrchestratorNode(Node):
 
         if self.phase == SystemPhase.NAV_EXECUTING:
 
-            if not self.nav2_controller.try_process_navigation_goal():
+            if not self.nav2_controller.tick_navigation():
                 if self.nav2_controller.is_error():
                     self.set_phase(SystemPhase.ERROR)
                 return
@@ -486,6 +491,7 @@ class OrchestratorNode(Node):
     
     def _on_behaviour_recovery_request(self, request, response):
 
+        # TODO: Currently cancel to retry. Add more behaviour
         try:
             self.get_logger().warn("[ORCHESTRATOR] Recovery requested")
 
