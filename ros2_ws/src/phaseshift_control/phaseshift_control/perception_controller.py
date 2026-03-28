@@ -12,7 +12,7 @@ class PerceptionControllerState(Enum):
     INACTIVE = auto()
     ACTIVATING = auto()
     ACTIVE = auto()
-    DEACTIVATE = auto()
+    DEACTIVATING = auto()
     CLEANING_UP = auto()
     ERROR = auto()
 
@@ -27,12 +27,19 @@ class PerceptionController:
         self.node = node
 
         self._yolo_name = '/yolo_detector_node'
+        self._yolo_tracker_name = '/yolo_tracker_node'
         self._projection_name = '/projection_node'
+        self._memory_node_name = '/detection_memory_node'
 
         # YOLO node client
         self._yolo_client = node.create_client(
             ChangeState,
             f'{self._yolo_name}/change_state'
+        )
+
+        self._yolo_tracker_client = node.create_client(
+            ChangeState,
+            f'{self._yolo_tracker_name}/change_state'
         )
 
         # Projection node client
@@ -41,18 +48,32 @@ class PerceptionController:
             f'{self._projection_name}/change_state'
         )
 
+        self._memory_node_client = node.create_client(
+            ChangeState,
+            f'{self._memory_node_name}/change_state'
+        )
+
         self._state = PerceptionControllerState.IDLE
 
         self._yolo_configured = False
+        self._yolo_tracker_configured =False
         self._projection_configured = False
+        self._memory_node_configured = False
+
         self._yolo_deactivated = False
+        self._yolo_tracker_deactivated = False
         self._projection_deactivated = False
+        self._memory_node_deactivated = False
 
         self._yolo_activated = False
+        self._yolo_tracker_activated = False
         self._projection_activated = False
+        self._memory_node_activated = False
 
         self._yolo_cleaned = False
+        self._yolo_tracker_cleaned = False
         self._projection_cleaned = False
+        self._memory_node_cleaned = False
 
     # ========================================
     # PUBLIC API
@@ -83,13 +104,27 @@ class PerceptionController:
         self._state = PerceptionControllerState.CONFIGURING
 
         self._yolo_configured = False
+        self._yolo_tracker_configured = False
         self._projection_configured = False
+        self._memory_node_configured = False
+
+        self._yolo_cleaned = False
+        self._yolo_tracker_cleaned = False
+        self._projection_cleaned = False
+        self._memory_node_cleaned = False
         
         # Activate process YOLO     
         self._call(
             self._yolo_client,
             self.CONFIGURE_ID,
             self._on_yolo_configured
+        )
+
+        # Activate process YOLO Tracker     
+        self._call(
+            self._yolo_tracker_client,
+            self.CONFIGURE_ID,
+            self._on_yolo_tracker_configured
         )
         
         # Activate process PROJECTION
@@ -99,6 +134,13 @@ class PerceptionController:
             self._on_projection_configured
         )
 
+        # Activate process MEMORY NODE
+        self._call(
+            self._memory_node_client,
+            self.CONFIGURE_ID,
+            self._on_memory_node_configured
+        )
+
     def deactivate(self) -> bool:
         if self._state != PerceptionControllerState.ACTIVE:
             self.node.get_logger().warn(
@@ -106,7 +148,7 @@ class PerceptionController:
             )
             return False 
         
-        if not self._wait_for_services():
+        if not self._wait_for_service():
             self._set_error('Lifecycle service unavailable')
             return False
         
@@ -114,13 +156,21 @@ class PerceptionController:
         self._state = PerceptionControllerState.DEACTIVATING
 
         self._yolo_deactivated = False
+        self._yolo_tracker_deactivated = False
         self._projection_deactivated = False
+        self._memory_node_deactivated = False
 
         # Cleanup process YOLO
         self._call(
             self._yolo_client,
             self.DEACTIVATE_ID,
             self._on_yolo_deactivated
+        )
+
+        self._call(
+            self._yolo_tracker_client,
+            self.DEACTIVATE_ID,
+            self._on_yolo_tracker_deactivated
         )
         
         # Cleanup process PROJECTION
@@ -130,24 +180,41 @@ class PerceptionController:
             self._on_projection_deactivated
         )
 
+        self._call(
+            self._memory_node_client,
+            self.DEACTIVATE_ID,
+            self._on_memory_node_deactivated
+        )
+
     # ========================================
     # INTERNAL
     # ========================================
 
     def _wait_for_service(self) -> bool:
         ok_yolo = self._yolo_client.wait_for_service(timeout_sec=1.0)
+        ok_yolo_tracker = self._yolo_tracker_client.wait_for_service(timeout_sec=1.0)
         ok_proj = self._projection_client.wait_for_service(timeout_sec=1.0)
+        ok_memory = self._memory_node_client.wait_for_service(timeout_sec=1.0)
 
         if not ok_yolo:
             self.node.get_logger().error(
                 f'[PERCEPTION] Service unavailable: {self._yolo_name}/change_state'
+            )
+        if not ok_yolo_tracker:
+            self.node.get_logger().error(
+                f'[PERCEPTION] Service unavailable: {self._yolo_tracker_name}/change_state'
             )
         if not ok_proj:
             self.node.get_logger().error(
                 f'[PERCEPTION] Service unavailable: {self._projection_name}/change_state'
             )
 
-        return ok_yolo and ok_proj
+        if not ok_memory:
+            self.node.get_logger().error(
+                f'[PERCEPTION] Service unavailable: {self._memory_node_name}/change_state'
+            )
+
+        return ok_yolo and ok_yolo_tracker and ok_proj and ok_memory
 
     def _call(self, client, transition_id, callback=None):
 
@@ -203,8 +270,17 @@ class PerceptionController:
             self.node.get_logger().error("YOLO configure failed")
             return
 
-
         self._yolo_configured = True
+        self._try_activate()
+
+    def _on_yolo_tracker_configured(self, future):
+
+        result = future.result()
+        if not result.success:
+            self.node.get_logger().error("YOLO tracker configure failed")
+            return
+
+        self._yolo_tracker_configured = True
         self._try_activate()
 
     def _on_projection_configured(self, future):
@@ -217,6 +293,16 @@ class PerceptionController:
         self._projection_configured = True
         self._try_activate()
 
+    def _on_memory_node_configured(self, future):
+
+        result = future.result()
+        if not result.success:
+            self.node.get_logger().error("Memory configure failed")
+            return
+        
+        self._memory_node_configured = True
+        self._try_activate()
+
     def _on_yolo_activated(self, future):
 
         result = future.result()
@@ -225,6 +311,16 @@ class PerceptionController:
             return
 
         self._yolo_activated = True
+        self._try_set_active()
+
+    def _on_yolo_tracker_activated(self, future):
+
+        result = future.result()
+        if not result.success:
+            self.node.get_logger().error("YOLO tracker activate failed")
+            return
+
+        self._yolo_tracker_activated = True
         self._try_set_active()
 
     def _on_projection_activated(self, future):
@@ -236,10 +332,21 @@ class PerceptionController:
 
         self._projection_activated = True
         self._try_set_active()
+    
+    def _on_memory_node_activated(self, future):
+
+        result = future.result()
+        if not result.success:
+            self.node.get_logger().error("Projection activate failed")
+            return
+
+        self._memory_node_activated = True
+        self._try_set_active()
 
     def _try_activate(self):
 
-        if not (self._yolo_configured and self._projection_configured):
+        if not (self._yolo_configured and self._projection_configured
+                 and self._yolo_tracker_configured and self._memory_node_configured):
             return
 
         self.node.get_logger().info("[PERCEPTION] Both configured → activating")
@@ -253,14 +360,27 @@ class PerceptionController:
         )
 
         self._call(
+            self._yolo_tracker_client,
+            self.ACTIVATE_ID,
+            self._on_yolo_tracker_activated
+        )
+
+        self._call(
             self._projection_client,
             self.ACTIVATE_ID,
             self._on_projection_activated
         )
 
+        self._call(
+            self._memory_node_client,
+            self.ACTIVATE_ID,
+            self._on_memory_node_activated
+        )
+
     def _try_set_active(self):
 
-        if not (self._yolo_activated and self._projection_activated):
+        if not (self._yolo_activated and self._projection_activated 
+                and self._yolo_tracker_activated and self._memory_node_activated):
             return
 
         self._state = PerceptionControllerState.ACTIVE
@@ -280,6 +400,16 @@ class PerceptionController:
         self._yolo_deactivated = True
         self._try_cleanup()
 
+    def _on_yolo_tracker_deactivated(self, future):
+
+        result = future.result()
+        if not result.success:
+            self.node.get_logger().error("YOLO deactivate failed")
+            return
+
+        self._yolo_tracker_deactivated = True
+        self._try_cleanup()
+
     def _on_projection_deactivated(self, future):
 
         result = future.result()
@@ -288,6 +418,16 @@ class PerceptionController:
             return
 
         self._projection_deactivated = True
+        self._try_cleanup()
+
+    def _on_memory_node_deactivated(self, future):
+
+        result = future.result()
+        if not result.success:
+            self.node.get_logger().error("Projection deactivate failed")
+            return
+
+        self._memory_node_deactivated = True
         self._try_cleanup()
 
     def _on_yolo_cleaned(self, future):
@@ -300,6 +440,16 @@ class PerceptionController:
         self._yolo_cleaned = True
         self._try_set_inactive()
 
+    def _on_yolo_tracker_cleaned(self, future):
+
+        result = future.result()
+        if not result.success:
+            self.node.get_logger().error("YOLO cleanup failed")
+            return
+
+        self._yolo_tracker_cleaned = True
+        self._try_set_inactive()
+
     def _on_projection_cleaned(self, future):
 
         result = future.result()
@@ -310,12 +460,23 @@ class PerceptionController:
         self._projection_cleaned = True
         self._try_set_inactive()
 
+    def _on_memory_node_cleaned(self, future):
+
+            result = future.result()
+            if not result.success:
+                self.node.get_logger().error("Projection cleanup failed")
+                return
+
+            self._memory_node_cleaned = True
+            self._try_set_inactive()
+
     def _try_cleanup(self):
 
-        if not (self._yolo_deactivated and self._projection_deactivated):
+        if not (self._yolo_deactivated and self._yolo_tracker_deactivated 
+                and self._projection_deactivated and self._memory_node_deactivated):
             return
 
-        self.node.get_logger().info("[PERCEPTION] Both deactivated → cleanup")
+        self.node.get_logger().info("[PERCEPTION] All deactivated → cleanup")
 
         self._state = PerceptionControllerState.CLEANING_UP
 
@@ -326,14 +487,27 @@ class PerceptionController:
         )
 
         self._call(
+            self._yolo_tracker_client,
+            self.CLEANUP_ID,
+            self._on_yolo_tracker_cleaned
+        )
+
+        self._call(
             self._projection_client,
             self.CLEANUP_ID,
             self._on_projection_cleaned
         )
+
+        self._call(
+            self._memory_node_client,
+            self.CLEANUP_ID,
+            self._on_memory_node_cleaned
+        )
     
     def _try_set_inactive(self):
 
-        if not (self._yolo_cleaned and self._projection_cleaned):
+        if not (self._yolo_cleaned and self._yolo_tracker_cleaned 
+                and self._projection_cleaned and self._memory_node_cleaned):
             return
 
         self._state = PerceptionControllerState.INACTIVE

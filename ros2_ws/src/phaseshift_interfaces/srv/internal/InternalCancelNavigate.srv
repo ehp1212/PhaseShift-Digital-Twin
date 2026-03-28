@@ -1,0 +1,5 @@
+# CancelNavigation.srv
+
+---
+bool success
+string message

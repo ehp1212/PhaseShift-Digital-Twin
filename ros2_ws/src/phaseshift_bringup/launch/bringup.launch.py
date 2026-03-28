@@ -72,11 +72,14 @@ def generate_launch_description():
     # ==========================
     # Orchestrator
     # ==========================
-    orchestrator = Node(
-        package='phaseshift_system',
-        executable='orchestrator_node',
-        name='orchestrator',
-        output='screen'
+    orchestrator_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('phaseshift_system'),
+                'launch',
+                'system.launch.py'
+            )
+        )
     )
 
     return LaunchDescription([
@@ -85,5 +88,5 @@ def generate_launch_description():
         costmap_node,
         nav_launch,
         perception_launch,
-        orchestrator
+        orchestrator_launch
     ])

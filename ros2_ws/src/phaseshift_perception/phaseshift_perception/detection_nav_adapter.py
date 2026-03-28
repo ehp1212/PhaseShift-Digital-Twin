@@ -19,7 +19,7 @@ class DetectionNavAdapter(Node):
         # ---------------------------
         self._sub = self.create_subscription(
             DetectedObjectArray,
-            "/perception/objects_3d",
+            '/perception/objects_filtered',
             self._callback,
             10
         )
@@ -41,7 +41,7 @@ class DetectionNavAdapter(Node):
         # publish rate (10Hz)
         self.create_timer(0.1, self._publish_timer)
 
-        self.get_logger().info("DetectionNavAdapter started")
+        self.get_logger().info("Detection Nav Adapter started...")
 
     # --------------------------------------------------
     # Callback (store only)
