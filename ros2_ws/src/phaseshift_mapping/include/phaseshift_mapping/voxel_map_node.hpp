@@ -36,7 +36,8 @@ private:
         pcl::PointCloud<pcl::PointXYZ>& output,
         const std::string& source_frame);
 
-        // voxel key
+        pcl::PointCloud<pcl::PointXYZ> buildFilteredCloud();
+
         struct VoxelKey
         {
                 int x, y, z;
@@ -57,6 +58,14 @@ private:
                 }
         };
 
+        struct VoxelCell
+        {
+                uint32_t point_hits = 0;
+                uint32_t frame_hits = 0;
+                float confidence = 0.0f;
+                rclcpp::Time last_seen_time{0, 0, RCL_ROS_TIME};
+        };
+
 private:
         rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_;
         rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_;
@@ -64,6 +73,24 @@ private:
         std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
         std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
-        std::unordered_set<VoxelKey, VoxelKeyHash> voxel_set_;
+        std::unordered_map<VoxelKey, VoxelCell, VoxelKeyHash> voxel_map_;
+        std::unordered_set<VoxelKey, VoxelKeyHash> current_frame_voxels_;
+
         bool active_{false};
+        double voxel_resolution_{0.15};
+        uint32_t stable_frame_threhold_{5};
+
+        VoxelKey pointToVoxelKey(float x, float y, float z)
+        {
+                return VoxelKey{
+                        static_cast<int>(std::floor(x / voxel_resolution_)),
+                        static_cast<int>(std::floor(y / voxel_resolution_)),
+                        static_cast<int>(std::floor(z / voxel_resolution_))
+                };
+        }
+
+        bool isHighConfidence(const VoxelCell& cell) const
+        {
+                return cell.confidence > 0.8f;
+        }
 };

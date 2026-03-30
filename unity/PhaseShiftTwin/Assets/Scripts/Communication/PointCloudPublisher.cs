@@ -8,7 +8,6 @@ using UnitySensors.Sensor.LiDAR;
 using sensor_msgs.msg;
 using std_msgs.msg;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 
 namespace Communication
 {
@@ -46,25 +45,18 @@ namespace Communication
             
             var cloudPoints = _sourceInterface.pointCloud.points;
             
-            // test timestamp
-            int sec = 0;
-            uint nanosec = 0;
-
             var msg = BuildPointCloud2FromXYZI(
                 cloudPoints,
-                FrameId,   // frame_id
-                sec,
-                nanosec
+                FrameId  // frame_id
             );
 
+            UpdateTimeStamp(ref msg);
             publisher.Publish(msg);
         }
         
         private PointCloud2 BuildPointCloud2FromXYZI(
             NativeArray<PointXYZI> points,
-            string frameId,
-            int sec,
-            uint nanosec)
+            string frameId)
         {
             var count = points.Length;
             
@@ -88,8 +80,6 @@ namespace Communication
             // Header
             msg.Header = new Header();
             msg.Header.Frame_id = frameId;
-            msg.Header.Stamp.Sec = sec;
-            msg.Header.Stamp.Nanosec = nanosec;
 
             // Organized cloud가 아니면 보통 height=1, width=N
             msg.Height = 1;
@@ -123,11 +113,13 @@ namespace Communication
             f.Count = 1;
             return f;
         }
-
-        private void WriteFloatLE(byte[] buffer, int offset, float value)
+        
+        private void UpdateTimeStamp(ref PointCloud2 msg)
         {
-            var bytes = BitConverter.GetBytes(value);
-            Buffer.BlockCopy(bytes, 0, buffer, offset, 4);
+            var clockMsg = new rosgraph_msgs.msg.Clock();
+            Node.clock.UpdateClockMessage(ref clockMsg);
+
+            msg.UpdateHeaderTime(clockMsg.Clock_.Sec, clockMsg.Clock_.Nanosec);
         }
     }
 }

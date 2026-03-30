@@ -87,23 +87,19 @@ void VoxelMapNode::pointcloud_callback(
         return;
     }
 
-    // Voxel Grid Filter
-    pcl::PointCloud<pcl::PointXYZ> filtered;
-    pcl::VoxelGrid<pcl::PointXYZ> voxel;
-
-    voxel.setInputCloud(transformed.makeShared());
-    voxel.setLeafSize(0.2f, 0.2f, 0.2f);
-    voxel.filter(filtered);
-
     // Voxel map
-    update_voxel_map(filtered);
+    update_voxel_map(transformed);
 
-    sensor_msgs::msg::PointCloud2 output;
-    pcl::toROSMsg(filtered, output);
+    auto filtered_cloud = buildFilteredCloud();
 
-    output.header.frame_id = "map";
-    output.header.stamp = msg->header.stamp;
-    pub_->publish(output);
+    // PCL -> ROS
+    sensor_msgs::msg::PointCloud2 output_msg;
+    pcl::toROSMsg(filtered_cloud, output_msg);
+
+    output_msg.header.frame_id = "map";
+    output_msg.header.stamp = msg->header.stamp;
+
+    pub_->publish(output_msg);
 }
 
 
@@ -113,21 +109,50 @@ void VoxelMapNode::pointcloud_callback(
 void VoxelMapNode::update_voxel_map(
     const pcl::PointCloud<pcl::PointXYZ>& cloud)
 {
-    float voxel_size = 0.2f;
+    rclcpp::Time now = this->get_clock()->now();
 
-    for (const auto& p : cloud.points)
+    current_frame_voxels_.clear();
+
+    // Get current frame voxel
+    for (const auto& pt : cloud.points)
     {
-        if (!std::isfinite(p.x) ||
-            !std::isfinite(p.y) ||
-            !std::isfinite(p.z))
-            continue;
+        VoxelKey key = pointToVoxelKey(pt.x, pt.y, pt.z);
 
-        int vx = static_cast<int>(std::floor(p.x / voxel_size));
-        int vy = static_cast<int>(std::floor(p.y / voxel_size));
-        int vz = static_cast<int>(std::floor(p.z / voxel_size));
+        auto& cell = voxel_map_[key];
 
-        voxel_set_.insert({vx, vy, vz});
+        cell.point_hits = std::min(cell.point_hits + 1, 100u);
+        cell.last_seen_time = now;
+
+        current_frame_voxels_.insert(key);
     }
+
+    // Increase hit count per frame
+    for (const auto& key : current_frame_voxels_)
+    {
+        auto& cell = voxel_map_[key];
+        cell.frame_hits = std::min(cell.frame_hits + 1, stable_frame_threhold_);
+    }
+
+    // Calculate confidence
+    for (auto& [key, cell] : voxel_map_)
+    {
+        cell.confidence = std::min(
+            static_cast<float>(cell.frame_hits) / static_cast<float>(stable_frame_threhold_),
+            1.0f
+        );
+    }
+
+    size_t high_conf = 0;
+    for (const auto& [key, cell] : voxel_map_)
+    {
+        if (cell.confidence > 0.8f)
+            high_conf++;
+    }
+
+
+    RCLCPP_INFO(this->get_logger(),
+        "Total: %ld | High confidence: %ld",
+        voxel_map_.size(), high_conf);
 }
 
 bool VoxelMapNode::transform_to_map(
@@ -136,16 +161,6 @@ pcl::PointCloud<pcl::PointXYZ>& output,
 const std::string& source_frame)
 {
     geometry_msgs::msg::TransformStamped transform;
-
-    // if (!tf_buffer_->canTransform(
-    //         "map",
-    //         source_frame,
-    //         tf2::TimePointZero,
-    //         tf2::durationFromSec(0.1)))
-    // {
-    //     RCLCPP_WARN(get_logger(), "TF not ready yet");
-    //     return false;
-    // }
 
     try
     {
@@ -196,4 +211,28 @@ const std::string& source_frame)
     pcl::transformPointCloud(input, output, mat);
 
     return true;
+}
+
+pcl::PointCloud<pcl::PointXYZ> VoxelMapNode::buildFilteredCloud()
+{
+    pcl::PointCloud<pcl::PointXYZ> cloud;
+
+    for (const auto& [key, cell] : voxel_map_)
+    {
+        if (!isHighConfidence(cell)) continue;
+
+        pcl::PointXYZ pt;
+
+        pt.x = key.x * voxel_resolution_;
+        pt.y = key.y * voxel_resolution_;
+        pt.z = key.z * voxel_resolution_;
+
+        cloud.points.push_back(pt);
+    }
+
+    cloud.width = cloud.points.size();
+    cloud.height = 1;
+    cloud.is_dense = true;
+
+    return cloud;
 }
