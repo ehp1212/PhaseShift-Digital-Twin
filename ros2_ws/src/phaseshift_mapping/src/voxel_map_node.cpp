@@ -39,6 +39,16 @@ CallbackReturn VoxelMapNode::on_configure(const rclcpp_lifecycle::State &)
         rclcpp::SystemDefaultsQoS()
     );  
 
+    save_service_ = create_service<phaseshift_interfaces::srv::SaveVoxelMap>(
+        "/system/save_voxel_map",
+        std::bind(
+            &VoxelMapNode::handleSaveMap,
+            this,
+            std::placeholders::_1,
+            std::placeholders::_2
+        )
+    );
+
     return CallbackReturn::SUCCESS;
 }
 
@@ -213,19 +223,21 @@ const std::string& source_frame)
     return true;
 }
 
-pcl::PointCloud<pcl::PointXYZ> VoxelMapNode::buildFilteredCloud()
+pcl::PointCloud<pcl::PointXYZI> VoxelMapNode::buildFilteredCloud()
 {
-    pcl::PointCloud<pcl::PointXYZ> cloud;
+    pcl::PointCloud<pcl::PointXYZI> cloud;
 
     for (const auto& [key, cell] : voxel_map_)
     {
         if (!isHighConfidence(cell)) continue;
 
-        pcl::PointXYZ pt;
+        pcl::PointXYZI pt;
 
         pt.x = key.x * voxel_resolution_;
         pt.y = key.y * voxel_resolution_;
         pt.z = key.z * voxel_resolution_;
+
+        pt.intensity = cell.confidence;
 
         cloud.points.push_back(pt);
     }
@@ -235,4 +247,38 @@ pcl::PointCloud<pcl::PointXYZ> VoxelMapNode::buildFilteredCloud()
     cloud.is_dense = true;
 
     return cloud;
+}
+
+// ------------------------------
+// MAP MANAGEMENT
+// ------------------------------
+void VoxelMapNode::saveMap(const std::string& path)
+{
+    auto cloud = buildFilteredCloud();
+
+    pcl::io::savePCDFileBinary(path, cloud);
+
+    RCLCPP_INFO(this->get_logger(),
+        "Save voxel map: %s", path.c_str());
+}
+
+void VoxelMapNode::handleSaveMap(
+    const std::shared_ptr<phaseshift_interfaces::srv::SaveVoxelMap::Request> request,
+    std::shared_ptr<phaseshift_interfaces::srv::SaveVoxelMap::Response> response)
+{
+    try
+    {
+        saveMap(request->path);
+        response->success = true;
+
+        RCLCPP_INFO(this->get_logger(),
+            "Map saved via service: %s", request->path.c_str());
+    }
+    catch (const std::exception& e)
+    {
+        RCLCPP_ERROR(this->get_logger(),
+            "Failed to save map: %s", e.what());
+
+        response->success = false;
+    }
 }

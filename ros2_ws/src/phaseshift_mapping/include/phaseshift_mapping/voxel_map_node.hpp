@@ -15,6 +15,9 @@
 #include <tf2_ros/transform_listener.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 
+// Map 
+#include "phaseshift_interfaces/srv/save_voxel_map.hpp"
+
 class VoxelMapNode : public rclcpp_lifecycle::LifecycleNode
 {
 public:
@@ -36,7 +39,13 @@ private:
         pcl::PointCloud<pcl::PointXYZ>& output,
         const std::string& source_frame);
 
-        pcl::PointCloud<pcl::PointXYZ> buildFilteredCloud();
+        pcl::PointCloud<pcl::PointXYZI> buildFilteredCloud();
+
+        // Map 
+        void saveMap(const std::string& path);
+        rclcpp::Service<phaseshift_interfaces::srv::SaveVoxelMap>::SharedPtr save_service_;
+        void handleSaveMap(const std::shared_ptr<phaseshift_interfaces::srv::SaveVoxelMap::Request> request,
+                std::shared_ptr<phaseshift_interfaces::srv::SaveVoxelMap::Response> response);
 
         struct VoxelKey
         {

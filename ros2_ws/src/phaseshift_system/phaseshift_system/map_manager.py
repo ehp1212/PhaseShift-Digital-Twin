@@ -1,6 +1,9 @@
 import time
 import rclpy
+import yaml
+
 from rclpy.node import Node
+from datetime import datetime
 
 from pathlib import Path
 from typing import Optional, List
@@ -35,7 +38,7 @@ class MapManager:
         return count > 0
 
     def get_latest_2d_map(self) -> Optional[str]:
-        maps = list(self.runtime_2d_dir.glob("*.yaml"))
+        maps = list(self.runtime_2d_dir.glob(f"{name}_*.yaml"))
         if not maps:
             self._log_message("There are no runtime maps...")
             return None
@@ -51,12 +54,13 @@ class MapManager:
                 return str(map_yaml)
             return None
 
-        # runtime
-        map_yaml = self.runtime_2d_dir / f"{name}.yaml"
-        if map_yaml.exists():
-            return str(map_yaml)
-        
-        return None
+        maps = list(self.runtime_2d_dir.glob(f"{name}_*.yaml"))
+        if not maps:
+            return None
+
+        # Return latest always
+        latest = max(maps, key=lambda p: p.stat().st_mtime)
+        return str(latest)
 
     def list_all_2d_maps(self) -> List[str]:
         runtime = [p.stem for p in self.runtime_2d_dir.glob("*.yaml")]
@@ -64,12 +68,12 @@ class MapManager:
         return list(set(runtime + builtin))
 
     # ==================================================
-    # 3D MAP (Visualization only)
+    # 3D MAP 
     # ==================================================
 
     def generate_3d_map_path(self, name: str) -> str:
         timestamp = int(time.time())
-        base = self.runtime_3d_dir / f"{name}_{timestamp}"
+        base = self.runtime_3d_dir / f"{name}_{timestamp}.pcd"
         return str(base)
 
     def list_3d_maps(self) -> List[str]:
@@ -81,7 +85,7 @@ class MapManager:
             if path.exists():
                 return str(path)
         return None
-    
+
     # ==================================================
     # UTILS
     # ==================================================

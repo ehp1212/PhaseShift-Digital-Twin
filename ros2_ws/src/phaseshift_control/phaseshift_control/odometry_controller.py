@@ -32,7 +32,7 @@ class OdometryController:
         return self._is_odom_active
 
     def activate(self):
-            
+
         if not self.odom_client.wait_for_service(timeout_sec=2.0):
                 self.get_logger().warn("Odom lifecycle service not available")
                 return

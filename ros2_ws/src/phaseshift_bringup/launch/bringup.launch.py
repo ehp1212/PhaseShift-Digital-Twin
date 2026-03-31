@@ -9,8 +9,7 @@ import os
 
 def generate_launch_description():
 
-    use_example_map = LaunchConfiguration("use_example_map")
-    example_map_name = LaunchConfiguration("example_map_name")
+    project_name = LaunchConfiguration("project_name")
 
     pkg_bringup = get_package_share_directory('phaseshift_bringup')
 
@@ -84,20 +83,14 @@ def generate_launch_description():
             )
         ),
         launch_arguments={
-            "use_example_map": use_example_map,
-            "example_map_name": example_map_name
+            "project_name": project_name
         }.items()
     )
 
     return LaunchDescription([
 
         DeclareLaunchArgument(
-            "use_example_map",
-            default_value="true"
-        ),
-
-        DeclareLaunchArgument(
-            "example_map_name",
+            "project_name",
             default_value="demo"
         ),
 

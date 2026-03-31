@@ -10,7 +10,7 @@ from lifecycle_msgs.msg import Transition, TransitionEvent
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped
 
 from phaseshift_interfaces.msg import NavState, NavigationFeedback
-from phaseshift_interfaces.srv import SaveMap, SetGoal, NavigateToGoal, InternalRequestNavigate, InternalCancelNavigate, InternalRequestRecovery
+from phaseshift_interfaces.srv import SaveMap, SaveVoxelMap, SetGoal, NavigateToGoal, InternalRequestNavigate, InternalCancelNavigate, InternalRequestRecovery
 
 from phaseshift_control.slam_controller import SlamController
 from phaseshift_control.nav2_controller import Nav2Controller
@@ -44,13 +44,13 @@ class OrchestratorNode(Node):
         # ------------------------------
         # PARAMETERS
         # ------------------------------
-        self.declare_parameter("use_example_map", True)
-        self.declare_parameter("example_map_name", "demo")
+        self.declare_parameter("project_name", "demo")
 
-        self.use_example_map = self.get_parameter("use_example_map").value
-        self.example_map_name = self.get_parameter("example_map_name").value
+        self.project_name = self.get_parameter("project_name").value
+        self.use_example_map = self.project_name == "demo"
+        self.example_map_name = "demo"
 
-        self._log_phase("ORCHESTRA NODE - PARAM", f"use_example_map={self.use_example_map} / example_map_name={self.example_map_name}")
+        self._log_phase("ORCHESTRA NODE - PARAM", f"use_example_map={self.use_example_map} / example_map_name={self.example_map_name} / project_name={self.project_name}")
 
         # ------------------------------
         # CONTROLLER 
@@ -68,6 +68,11 @@ class OrchestratorNode(Node):
             SaveMap,
             '/system/save_map',
             self.handle_save_map
+        )
+
+        self._voxel_save_client = self.create_client(
+            SaveVoxelMap,
+            "/system/save_voxel_map"
         )
 
         self.set_goal_srv = self.create_service(
@@ -129,12 +134,14 @@ class OrchestratorNode(Node):
         # ------------------------------
         package_dir = get_package_share_directory("phaseshift_bringup")
         package_map_dir = os.path.join(package_dir, "maps")
-        self._has_runtime_map = None
         
         self.map_manager = MapManager(self, package_map_dir)
         self._map_yaml = None
 
-        self.initial_pose_sent = False
+        self._slam_saved = False
+        self._voxel_saved = False
+
+        self.initial_pose_sent = False 
         self._behaviour_activated = False
 
         # initial pose publisher
@@ -175,13 +182,13 @@ class OrchestratorNode(Node):
 
         if phase == SystemPhase.BOOT:
             self.get_logger().info("[Boot]System booting...")
+            self._behaviour_activated = False
 
         elif phase == SystemPhase.SYSTEM_INITIALIZING:
             self.get_logger().info("[Init]Checking map availability...")
-            self._has_runtime_map = self.map_manager.has_runtime_2d_map()
 
-            self.odom_controller.activate()
-            self._behaviour_activated = False
+            if not self.odom_controller.is_active():
+                self.odom_controller.activate()
 
         elif phase == SystemPhase.SLAM_PREPARING:
             self.get_logger().info("[SLAM]Waiting for SLAM readiness...")
@@ -297,7 +304,8 @@ class OrchestratorNode(Node):
             if not self.odom_controller.is_active():
                 return
             
-            if self.use_example_map or self._has_runtime_map:
+            has_map = self.map_manager.resolve_2d_map(self.project_name, False) is not None
+            if self.use_example_map or has_map:
                 self.set_phase(SystemPhase.NAV_PREPARING)
             else:
                 self.set_phase(SystemPhase.SLAM_PREPARING)
@@ -336,7 +344,7 @@ class OrchestratorNode(Node):
                     if self.use_example_map:
                         self._map_yaml = self.map_manager.resolve_2d_map(self.example_map_name, True)
                     else:
-                        self._map_yaml = self.map_manager.get_latest_2d_map()
+                        self._map_yaml = self.map_manager.resolve_2d_map(self.project_name)
 
                     if self._map_yaml is None:
                         self.get_logger().error("No runtime map found")
@@ -396,22 +404,24 @@ class OrchestratorNode(Node):
             response.message = "SLAM not active"
             return response
 
-        map_name = request.map_name.strip()
+        map_name = f"{self.project_name}"
         if map_name == "":
             response.success = False
             response.message = "Invalid map name"
             return response
 
-        if "/" in map_name:
-            response.success = False
-            response.message = "Map name must not contain '/'"
-            return response
-
         self.set_phase(SystemPhase.MAP_SAVING)
 
+        # 2D map
         base_path = self.map_manager.generate_2d_map_path(map_name)
+        self.slam_controller.save_map_async(
+            base_path,
+            on_done=self._on_slam_saved
+        )
 
-        self.slam_controller.save_map_async(base_path)
+        # 3D map
+        voxel_path = self.map_manager.generate_3d_map_path(map_name)
+        self._save_voxel_map_async(voxel_path)
 
         response.success = True
         response.message = f"Saving map {map_name}"
@@ -631,6 +641,60 @@ class OrchestratorNode(Node):
 
         self.set_phase(SystemPhase.NAV_EXECUTING)
         return True, "Goal sent"
+
+    # ======================================================
+    # Map 
+    # ======================================================
+    def _save_voxel_map_async(self, path: str):
+
+        if not self._voxel_save_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().error("Voxel save service not available")
+            return
+
+        request = SaveVoxelMap.Request()
+        request.path = path
+
+        future = self._voxel_save_client.call_async(request)
+
+        future.add_done_callback(self._on_voxel_saved)
+
+    def _on_voxel_saved(self, future):
+
+        try:
+            result = future.result()
+
+            if not result.success:
+                self.get_logger().error("Voxel map save failed")
+                self.set_phase(SystemPhase.ERROR)
+                return
+
+            self.get_logger().info("Voxel map saved successfully")
+            self._voxel_saved = True
+            self._check_all_maps_saved()
+
+        except Exception as e:
+            self.get_logger().error(f"Voxel save exception: {e}")
+            self.set_phase(SystemPhase.ERROR)
+
+    def _on_slam_saved(self, success: bool):
+
+        if not success:
+            self.get_logger().error("2D map save failed")
+            self.set_phase(SystemPhase.ERROR)
+            return
+
+        self.get_logger().info("2D map saved")
+
+        self._slam_saved = True
+        self._check_all_maps_saved()
+
+    def _check_all_maps_saved(self):
+
+        if self._slam_saved and self._voxel_saved:
+            self.get_logger().info("All maps saved")
+
+            self.set_phase(SystemPhase.MAP_SAVED)        
+
 
 # ======================================================
 # Main Entry

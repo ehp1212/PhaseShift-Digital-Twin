@@ -21,7 +21,7 @@ class SlamController:
 
         self._slam_yaml = os.path.join(
             pkg_share,
-            "config",
+            "config", 
             "slam.yaml"
         )
 
@@ -52,34 +52,44 @@ class SlamController:
         
         self.node.get_logger().info("[SLAM] starting slam_toolbox")
 
-        self._slam_process = subprocess.Popen([
-            "ros2",
-            "run",
-            "slam_toolbox",
-            "sync_slam_toolbox_node",
-            "--ros-args",
-            "--params-file",
-            self._slam_yaml
-        ])
+        self._slam_process = subprocess.Popen(
+            [
+                "ros2",
+                "run",
+                "slam_toolbox",
+                "sync_slam_toolbox_node",
+                "--ros-args",
+                "--params-file",
+                self._slam_yaml
+            ],
+            preexec_fn=os.setsid 
+        )
 
         self._map_received = False
         self.is_map_saved = False
 
     def stop_slam(self):
-        if self._slam_process is not None:
+        if self._slam_process is None:
             self.node.get_logger().warn("SLAM is not running")
             return
         
         self.node.get_logger().info("[SLAM] stopping slam_toolbox")
 
         try:
-            os.kill(self._slam_process.pid, signal.SIGINT)
+            os.killpg(os.getpgid(self._slam_process.pid), signal.SIGINT)
+
             self._slam_process.wait(timeout=5)
+
         except Exception as e:
-            self.node.get_logger().error(f"[SLAM] failed to stop process: {e}")
-            self._slam_process.kill()
-        
-        self._slam_process = None
+            self.node.get_logger().warn(f"[SLAM] graceful stop failed: {e}")
+
+            try:
+                os.killpg(os.getpgid(self._slam_process.pid), signal.SIGKILL)
+            except Exception as e:
+                self.node.get_logger().error(f"[SLAM] force kill failed: {e}")
+
+        finally:
+            self._slam_process = None
 
     # ----------------------------------------------
     # Readiness
@@ -132,7 +142,7 @@ class SlamController:
     # Map Save
     # ----------------------------------------------
 
-    def save_map_async(self, path: str):
+    def save_map_async(self, path: str, on_done= None):
 
         if not self._save_map_cli.wait_for_service(timeout_sec=1.0):
             self.node.get_logger().error("SaveMap service not available.")
@@ -144,36 +154,34 @@ class SlamController:
         request.name.data = path
         self.is_map_saved = False
 
-        self._save_map_future = self._save_map_cli.call_async(request)
-        # self._save_map_future.add_done_callback(self._on_save_map_done)
-
-        # TODO: As this is single thread, use another service call cannot handle callback
+        future = self._save_map_cli.call_async(request)
         self._check_future_timer = self.node.create_timer(
             0.1,
-            self.check_save_map_status
+            # self.check_save_map_status
+            lambda: self._check_future(future, on_done)
         )
     
-    def check_save_map_status(self):
-        if self._save_map_future is None:
+    def _check_future(self, future, on_done):
+
+        if not future.done():
             return
-        
-        if not self._save_map_future.done():
-            return
-        
+
         try:
-            result = self._save_map_future.result()
-            self.is_map_saved = True
-            # self.node.get_logger().info("Map saved successfully")
-            self.node.on_map_save_succeeded()
+            future.result()  
+            self.node.get_logger().info("SLAM map saved")
+
+            if on_done:
+                on_done(success=True)
 
         except Exception as e:
             self.node.get_logger().error(f"SaveMap failed: {e}")
-            self.node.on_map_save_failed()
-            return
+
+            if on_done:
+                on_done(success=False)
+
         finally:
             self._check_future_timer.destroy()
             self._check_future_timer = None
-            self._save_map_future = None
     
     # ----------------------------------------------
 
