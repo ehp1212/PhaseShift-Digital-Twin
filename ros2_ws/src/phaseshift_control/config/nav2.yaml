@@ -258,6 +258,8 @@ global_costmap:
 
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
+        map_topic: /spatial_cost_field
+        subscribe_to_updates: false
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -289,7 +291,7 @@ global_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.8
+        inflation_radius: 0.3
         cost_scaling_factor: 4.0
 
 
