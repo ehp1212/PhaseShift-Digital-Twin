@@ -80,11 +80,12 @@ class MapManager:
         return [p.stem for p in self.runtime_3d_dir.glob("*")]
 
     def resolve_3d_map(self, name: str) -> Optional[str]:
-        for ext in [".bt", ".pcd"]:
-            path = self.runtime_3d_dir / f"{name}{ext}"
-            if path.exists():
-                return str(path)
-        return None
+        maps = list(self.runtime_3d_dir.glob(f"{name}_*.pcd"))
+        if not maps:
+            return None
+
+        latest = max(maps, key=lambda p: p.stat().st_mtime)
+        return str(latest)
 
     # ==================================================
     # UTILS

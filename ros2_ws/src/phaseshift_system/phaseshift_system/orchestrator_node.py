@@ -2,6 +2,9 @@ import os
 import time
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
+from rcl_interfaces.srv import SetParameters
+
 from enum import Enum
 from ament_index_python.packages import get_package_share_directory
 
@@ -85,6 +88,19 @@ class OrchestratorNode(Node):
             NavigateToGoal,
             '/system/navigate',
             self.handle_navigate
+        )
+
+        # ------------------------------
+        # PERCEPTION GEOMETRY LAYER
+        # ------------------------------
+        self.voxel_costmap_client = self.create_client(
+            ChangeState,
+            '/voxel_costmap_node/change_state'
+        )
+
+        self._voxel_costmap_set_param_client = self.create_client(
+            SetParameters,
+            '/voxel_costmap_node/set_parameters'
         )
 
         # ------------------------------
@@ -211,6 +227,11 @@ class OrchestratorNode(Node):
 
             # Activate behaviour node
             self._activate_behaviour_node()
+
+            # TODO: Need to set this as must-meet condition for nav2 phase
+            # Activate voxel costmap node
+            voxel_map_path = self.map_manager.resolve_3d_map(self.project_name)
+            self._activate_perception_geometry(voxel_map_path)
         
         elif phase == SystemPhase.ERROR:
             self.get_logger().error("System entered ERROR state")
@@ -571,6 +592,72 @@ class OrchestratorNode(Node):
             response.message = "No active navigation"
 
         return response
+
+    # ======================================================
+    # PERCEPTION GEOMETRY
+    # ======================================================
+    def _activate_perception_geometry(self, voxel_map_path: str):
+        try:
+            while not self._voxel_costmap_set_param_client.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn("Waiting for voxel_costmap_node")
+
+            params = Parameter(
+                'voxel_map_path',
+                Parameter.Type.STRING,
+                voxel_map_path
+            )
+
+            param_req = SetParameters.Request()
+            param_req.parameters = [params.to_parameter_msg()]
+            future = self._voxel_costmap_set_param_client.call_async(param_req)
+            future.add_done_callback(self._on_set_voxel_map)
+
+        except Exception as e:
+            self.get_logger().error(f"Failed to activate perception geometry node ... {e}")
+
+    def _on_set_voxel_map(self, future):
+
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Voxel Costmap Set Param failed: {e}")
+            return
+
+        for r in result.results:
+            if not r.successful:
+                self.get_logger().error("Parameter set failed")
+                return
+
+        # Start 
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_CONFIGURE
+
+        self.get_logger().info("Configuring Voxel Costmap Node...")
+        
+        future = self.voxel_costmap_client.call_async(req)
+        future.add_done_callback(self._on_perception_geometry_configured)
+
+    def _on_perception_geometry_configured(self, future):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Voxel Costmap configure Param failed: {e}")
+            return
+
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_ACTIVATE
+
+        self.get_logger().info("Activating Voxel Costmap Node...")
+        
+        future = self.voxel_costmap_client.call_async(req)
+        future.add_done_callback(self._on_perception_geometry_activated)
+
+    def _on_perception_geometry_activated(self, future):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Voxel Costmap configure Param failed: {e}")
+            return
 
     # ======================================================
     # Utility
