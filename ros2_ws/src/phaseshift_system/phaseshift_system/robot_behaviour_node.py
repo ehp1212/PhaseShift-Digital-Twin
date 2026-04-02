@@ -301,7 +301,6 @@ class RobotBehaviourNode(LifecycleNode):
         self._start_returning()
 
     def _handle_replanning(self):
-        self.get_logger().info("Replanning → avoidance")
 
         if self._last_detected_obstacle:
             new_goal = self._compute_avoidance_goal(self._last_detected_obstacle)
@@ -353,6 +352,7 @@ class RobotBehaviourNode(LifecycleNode):
     # NAV2 SERVICE  
     # ==================================================
     def _send_nav_navigate_request(self, goal: PoseStamped, *, is_primary_goal: bool = False):      
+        
         req = InternalRequestNavigate.Request()
         req.goal = goal
 

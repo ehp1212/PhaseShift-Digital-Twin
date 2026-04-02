@@ -114,7 +114,7 @@ class DetectionMemoryNode(LifecycleNode):
 
         # Cleanup expired
         self._cleanup_tracks()
-
+        
         # Publish
         self._publish(valid_tracks, msg.header)
 

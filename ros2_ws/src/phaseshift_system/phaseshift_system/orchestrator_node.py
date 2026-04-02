@@ -103,6 +103,16 @@ class OrchestratorNode(Node):
             '/voxel_costmap_node/set_parameters'
         )
 
+        self.voxel_change_detection_client = self.create_client(
+            ChangeState,
+            'voxel_change_detection_node/change_state'
+        )
+
+        self._voxel_change_detection_set_param_client = self.create_client(
+            SetParameters,
+            '/voxel_change_detection_node/set_parameters'
+        )
+
         # ------------------------------
         # BEHAVIOUR NODE
         # ------------------------------
@@ -231,8 +241,14 @@ class OrchestratorNode(Node):
             # TODO: Need to set this as must-meet condition for nav2 phase
             # Activate voxel costmap node
             voxel_map_path = self.map_manager.resolve_3d_map(self.project_name)
-            self._activate_perception_geometry(voxel_map_path)
-        
+            self._activate_voxel_costmap_node(voxel_map_path)
+            # self._activate_change_detection_node(voxel_map_path)
+
+        elif phase == SystemPhase.NAV_READY:
+            voxel_map_path = self.map_manager.resolve_3d_map(self.project_name)
+            self._activate_change_detection_node(voxel_map_path)
+            pass
+
         elif phase == SystemPhase.ERROR:
             self.get_logger().error("System entered ERROR state")
 
@@ -527,15 +543,14 @@ class OrchestratorNode(Node):
     def _on_behaviour_navigate_request(self, request, response):
 
         self.nav2_controller.set_goal(
-            x=request.goal.x,
-            y=request.goal.y,
-            yaw=request.goal.yaw,
-            frame_id=request.goal.frame_id
+            x=request.goal.pose.position.x,
+            y=request.goal.pose.position.y,
+            yaw=0
         )
 
         self.set_phase(SystemPhase.NAV_EXECUTING)
 
-        response.success = True
+        response.accepted = True
         response.message = "Goal stored"
         return response
     
@@ -596,7 +611,8 @@ class OrchestratorNode(Node):
     # ======================================================
     # PERCEPTION GEOMETRY
     # ======================================================
-    def _activate_perception_geometry(self, voxel_map_path: str):
+
+    def _activate_voxel_costmap_node(self, voxel_map_path: str):
         try:
             while not self._voxel_costmap_set_param_client.wait_for_service(timeout_sec=1.0):
                 self.get_logger().warn("Waiting for voxel_costmap_node")
@@ -658,6 +674,72 @@ class OrchestratorNode(Node):
         except Exception as e:
             self.get_logger().error(f"Voxel Costmap configure Param failed: {e}")
             return
+        
+    # ------------------------------------------------------
+
+    def _activate_change_detection_node(self, voxel_map_path: str):
+        try:
+            while not self._voxel_change_detection_set_param_client.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn("Waiting for voxel_change_detection_node")
+
+            params = Parameter(
+                'voxel_map_path',
+                Parameter.Type.STRING,
+                voxel_map_path
+            )
+
+            param_req = SetParameters.Request()
+            param_req.parameters = [params.to_parameter_msg()]
+            future = self._voxel_change_detection_set_param_client.call_async(param_req)
+            future.add_done_callback(self._on_set_voxel_map_change_detection)
+
+        except Exception as e:
+            self.get_logger().error(f"Failed to activate perception geometry node ... {e}")
+
+    def _on_set_voxel_map_change_detection(self, future):
+
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Voxel Change Detection Set Param failed: {e}")
+            return
+
+        for r in result.results:
+            if not r.successful:
+                self.get_logger().error("Parameter set failed")
+                return
+
+        # Start 
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_CONFIGURE
+
+        self.get_logger().info("Configuring Change Detection Node...")
+        
+        future = self.voxel_change_detection_client.call_async(req)
+        future.add_done_callback(self._on_change_detection_configured)
+
+    def _on_change_detection_configured(self, future):
+
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Voxel Change Detection Param failed: {e}")
+            return
+
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_ACTIVATE
+
+        self.get_logger().info("Activating Change Detection Node...")
+        
+        future = self.voxel_change_detection_client.call_async(req)
+        future.add_done_callback(self._on_change_detection_activated)
+
+    def _on_change_detection_activated(self, future):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Voxel Change Detection Param failed: {e}")
+            return
 
     # ======================================================
     # Utility
@@ -718,17 +800,6 @@ class OrchestratorNode(Node):
         
         return no_progress
     
-    def _start_navigation(self, goal: PoseStamped) -> tuple[bool, str]:
-        if self.phase not in [SystemPhase.NAV_READY, SystemPhase.NAV_EXECUTING]:
-            return False, "Navigation is not available in current phase"
-
-        success = self.nav2_controller.navigate_to_pose(goal)
-        if not success:
-            return False, "Failed to send goal to Nav2"
-
-        self.set_phase(SystemPhase.NAV_EXECUTING)
-        return True, "Goal sent"
-
     # ======================================================
     # Map 
     # ======================================================

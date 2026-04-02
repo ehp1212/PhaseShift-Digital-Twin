@@ -1,9 +1,6 @@
 import rclpy
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
-from lifecycle_msgs.msg import Transition
-from lifecycle_msgs.srv import ChangeState, GetState
-
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import Pose
 
@@ -26,7 +23,7 @@ Nav2 StaticLayer ← /spatial_cost_field
 
 ✔ voxel-based spatial abstraction
 ✔ obstacle distance-aware cost shaping
-✔ navigation behavior modification (wall avoidance)
+✔ navigation behavior modification (wall avoidance)\
 """
 
 class VoxelCostmapNode(LifecycleNode):
@@ -88,7 +85,6 @@ class VoxelCostmapNode(LifecycleNode):
         
         self._voxel_occupancy_msg = self._build_grid_msg(self._voxel_occupancy_cells)
         self._spatial_cost_field_msg = self._build_spatial_cost_field_msg(self._voxel_occupancy_cells)
-        self._log_info_label("Test", "333")
 
         self.map_loaded = True
         return TransitionCallbackReturn.SUCCESS
