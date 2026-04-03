@@ -189,8 +189,15 @@ local_costmap:
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
-        observation_sources: perception velodyne scan
-      
+        observation_sources: dynamic_points perception velodyne scan
+
+        dynamic_points:
+          topic: /perception_geometry/change_points
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "PointCloud2"
+
         perception:
           topic: /perception/obstacles
           data_type: PointCloud2
@@ -263,7 +270,14 @@ global_costmap:
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
-        observation_sources: scan perception
+        observation_sources: dynamic_points scan perception
+
+        dynamic_points:
+          topic: /perception_geometry/change_points
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "PointCloud2"
 
         scan:
           topic: /scan

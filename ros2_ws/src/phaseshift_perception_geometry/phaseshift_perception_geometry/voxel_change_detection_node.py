@@ -11,7 +11,16 @@ from sensor_msgs.msg import PointCloud2, PointField
 from sensor_msgs_py import point_cloud2
 from tf2_ros import Buffer, TransformListener
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
 
+"""
+State-aware perception filtering
+Probabilistic spatial modeling
+Spatial memory abstraction
+
+This node acts as a geometry perception layer that
+ bridges static spatial memory (voxel map) and live sensor observations.
+"""
 
 class VoxelChangeDetectionNode(LifecycleNode):
     def __init__(self):
@@ -22,19 +31,18 @@ class VoxelChangeDetectionNode(LifecycleNode):
         # PARAMETERS
         # -------------------------
         self.declare_parameter('voxel_map_path', '')
-        self.declare_parameter('voxel_resolution', 0.2)
+        self.declare_parameter('voxel_resolution', 0.15)
         self.declare_parameter('input_topic', '/velodyne_points')
         self.declare_parameter('output_topic', '/perception_geometry/change_points')
         self.declare_parameter('target_frame', 'map')
 
         self._voxel_map_path = ''
-        self._resolution = 0.2
+        self._resolution = 0.15
         self._input_topic = '/velodyne_points'
         self._output_topic = '/perception_geometry/change_points'
 
+        self._voxel_dict = {}
         self._map_loaded = False
-        self._voxel_map = None
-        self._voxel_hash = None
         self._hash_mul = np.array([73856093, 19349663, 83492791], dtype=np.int64)
 
         self._sub = None
@@ -42,6 +50,9 @@ class VoxelChangeDetectionNode(LifecycleNode):
 
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
+
+        # TODO: Debuging voxel map
+        self._map_pub = self.create_publisher(PointCloud2, '/voxel_map', 10)
 
     # ==============================
     # LIFECYCLE
@@ -69,19 +80,19 @@ class VoxelChangeDetectionNode(LifecycleNode):
             10
         )
 
-        self.map_loaded = True
+        self._map_loaded = True
         self._log_info_label('VOXEL CHANGE DETECTION NODE', 'configured successfully')
         return TransitionCallbackReturn.SUCCESS
     
     def on_activate(self, state):
-        if not self.map_loaded:
+        if not self._map_loaded:
             self._log_info_label('VOXEL CHANGE DETECTION NODENODE', "Failed to load voxel map")
             return TransitionCallbackReturn.FAILURE
 
         sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=5
+            depth=3
         )
         
         self._sub = self.create_subscription(
@@ -110,7 +121,6 @@ class VoxelChangeDetectionNode(LifecycleNode):
             self.destroy_subscription(self._sub)
             self._sub = None
 
-        self._voxel_map.clear()
         self._map_loaded = False
         self._dynamic_pub = None
 
@@ -137,55 +147,104 @@ class VoxelChangeDetectionNode(LifecycleNode):
 
             pcd = o3d.io.read_point_cloud(path)
 
-            # if len(pcd.points) == 0:
-            #     self.get_logger().error("Empty PCD file")
-            #     return False
-            
             points = np.asarray(pcd.points)
             if points is None or points.size == 0:
                 self.get_logger().error("Voxel map has no valid points")
                 return False
 
+            if pcd.has_colors():
+                confs = np.asarray(pcd.colors)[:, 0]
+            else:
+                confs = np.ones(len(points))
+
             # voxel index
             indices = np.floor(points / self._resolution).astype(np.int32)
 
-            # hash 
-            self._voxel_hash = np.sum(indices * self._hash_mul, axis=1)
+            for (ix, iy, iz), conf in zip(indices, confs):
+                key = (int(ix), int(iy), int(iz))
+                self._voxel_dict[key] = float(conf)
 
-            # self._log_info_label(
-            #     'VOXEL CHANGE DETECTION NODE',
-            #     f'Loaded {len(self._voxel_map)} voxels'
-            # )
-
+            self.get_logger().info(f"Loaded voxel map: {len(self._voxel_dict)} voxels")
             return True
         
         except Exception as e:
             self.get_logger().error(f"Load failed: {e}")
             return False
+        finally:
+            # TODO: Testing voxel map
+            header = Header()
+            header.frame_id = 'map'
+
+            msg = point_cloud2.create_cloud_xyz32(
+                header,
+                points.tolist()
+            )
+
+            self._map_msg = msg
+
+            self.create_timer(1.0, self._publish_map)
+
+    def _publish_map(self):
+        if self._map_msg:
+            self._map_pub.publish(self._map_msg)
 
     def _points_callback(self, msg):
-        points = self._pointcloud2_to_numpy(msg)
+        transformed_msg = self._transform_cloud_msg(msg)
+        if transformed_msg is None:
+            return
 
+        points = self._pointcloud2_to_numpy(transformed_msg)
         if points.size == 0:
             return
-                
-        transformed = self._transform_points(points, msg.header.frame_id, msg.header.stamp)
-        if transformed is None:
-            return
-        
-        # voxel index
-        indices = np.floor(transformed / self._resolution).astype(np.int32)
-        
-        # hash
-        hashes = np.sum(indices * self._hash_mul, axis=1)
 
-        # comparison
-        mask = ~np.isin(hashes, self._voxel_hash)
+        indices = np.floor(points / self._resolution).astype(np.int32)
 
-        # dynamic points
-        dynamic_points = transformed[mask]
+        voxel_keys = [
+            (int(ix), int(iy), int(iz))
+            for ix, iy, iz in indices
+        ]
 
-        self._publish_dynamic_points(dynamic_points, self._target_frame)
+        mask = [
+            not self._is_static(key)
+            for key in voxel_keys
+        ]
+
+        dynamic_points = points[mask]
+
+        self._publish_dynamic_points(dynamic_points, self._target_frame, msg.header.stamp)
+
+    def _transform_cloud_msg(self, cloud_msg: PointCloud2):
+        source_frame = cloud_msg.header.frame_id
+
+        if source_frame == self._target_frame:
+            return cloud_msg
+
+        if not self._tf_buffer.can_transform(
+            self._target_frame,
+            source_frame,
+            cloud_msg.header.stamp,
+            timeout=rclpy.duration.Duration(seconds=0.1)
+        ):
+            return None
+
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self._target_frame,
+                source_frame,
+                cloud_msg.header.stamp,
+                timeout=rclpy.duration.Duration(seconds=0.1)
+            )
+
+        except Exception as e:
+            self.get_logger().warn(f"TF Lookup failed: {e}")
+            return None
+
+        try:
+            transformed_cloud = do_transform_cloud(cloud_msg, transform)
+            return transformed_cloud
+        except Exception as e:
+            self.get_logger().warn(f"Cloud transform failed: {e}")
+            return None
 
     def _pointcloud2_to_numpy(self, msg):
         points_iter = point_cloud2.read_points(
@@ -202,13 +261,13 @@ class VoxelChangeDetectionNode(LifecycleNode):
         xyz = np.stack([points['x'], points['y'], points['z']], axis=1)
         return xyz.astype(np.float32)
 
-    def _publish_dynamic_points(self, dynamic_points, frame_id: str):
+    def _publish_dynamic_points(self, dynamic_points, frame_id: str, timestamp):
 
         if self._dynamic_pub is None:
             return
         
         header = Header()
-        header.stamp = self.get_clock().now().to_msg()
+        header.stamp = timestamp
         header.frame_id = frame_id 
 
         # -----------------------------
@@ -242,50 +301,6 @@ class VoxelChangeDetectionNode(LifecycleNode):
 
         self._dynamic_pub.publish(msg)
         
-    def _transform_points(self, points: np.ndarray, source_frame: str, timestamp: str):
-
-        if source_frame == self._target_frame:
-            return points
-            
-        # if not self._tf_buffer.can_transform(
-        #     self._target_frame,
-        #     source_frame,
-        #     rclpy.time.Time(),
-        #     timeout=rclpy.duration.Duration(seconds=0.1)
-        # ):
-        #     self.get_logger().warn(
-        #         f"TF not available: {source_frame} → {self._target_frame}"
-        #     )
-        #     return None        
-
-        try:
-            transform = self._tf_buffer.lookup_transform(
-                self._target_frame,
-                source_frame,
-            rclpy.time.Time(),
-            timeout=rclpy.duration.Duration(seconds=0.1)
-        )
-        except Exception as e:
-            self.get_logger().warn(f"TF Lookup failed: {e}")
-            return None
-            
-        # translation
-        t = transform.transform.translation
-        tx, ty, tz = t.x, t.y, t.z
-
-        # rotation (quaternion)
-        q = transform.transform.rotation
-        qx, qy, qz, qw = q.x, q.y, q.z, q.w
-
-        # quaternion → rotation matrix
-        R = self._quat_to_rot(qx, qy, qz, qw)
-
-        # transform
-        transformed = (R @ points.T).T
-        transformed += np.array([tx, ty, tz])
-
-        return transformed        
-
     # ==============================
     # UTILS
     # ==============================
@@ -299,10 +314,28 @@ class VoxelChangeDetectionNode(LifecycleNode):
             [2*x*y + 2*z*w,     1 - 2*x*x - 2*z*z, 2*y*z - 2*x*w],
             [2*x*z - 2*y*w,     2*y*z + 2*x*w,     1 - 2*x*x - 2*y*y]
         ])
-    
-    def _points_to_voxel_indices(self, points: np.ndarray):
-        return np.floor(points / self._resolution).astype(np.int32)
+        
+    # Probabilistic spatial model
+    def _is_static(self, key):
+        x, y, z = key
 
+        best_conf = 0.0
+
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    neighbor = (x + dx, y + dy, z + dz)
+
+                    if neighbor in self._voxel_dict:
+                        conf = self._voxel_dict[neighbor]
+                        best_conf = max(best_conf, conf)
+
+
+        if best_conf > 0.6:
+            return True   # static
+
+        return False      # possible dynamic
+    
 def main():
     rclpy.init()
     node = VoxelChangeDetectionNode()

@@ -238,7 +238,7 @@ class OrchestratorNode(Node):
             # Activate behaviour node
             self._activate_behaviour_node()
 
-            # TODO: Need to set this as must-meet condition for nav2 phase
+            # TODO: Need to set this as must-met condition for nav2 phase
             # Activate voxel costmap node
             voxel_map_path = self.map_manager.resolve_3d_map(self.project_name)
             self._activate_voxel_costmap_node(voxel_map_path)

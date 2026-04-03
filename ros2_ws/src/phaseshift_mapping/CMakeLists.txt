@@ -16,6 +16,7 @@ find_package(rclcpp_lifecycle REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(phaseshift_interfaces REQUIRED)
@@ -41,6 +42,7 @@ ament_target_dependencies(voxel_map_node
   phaseshift_interfaces
   pcl_conversions     
   tf2_ros
+  tf2_geometry_msgs 
 )
 
 target_link_libraries(voxel_map_node
