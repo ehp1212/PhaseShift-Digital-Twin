@@ -2,14 +2,18 @@ import os
 import time
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
+from rcl_interfaces.srv import SetParameters
+
 from enum import Enum
+from ament_index_python.packages import get_package_share_directory
 
 from lifecycle_msgs.srv import ChangeState, GetState
 from lifecycle_msgs.msg import Transition, TransitionEvent
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped
 
 from phaseshift_interfaces.msg import NavState, NavigationFeedback
-from phaseshift_interfaces.srv import SaveMap, SetGoal, NavigateToGoal, InternalRequestNavigate, InternalCancelNavigate, InternalRequestRecovery
+from phaseshift_interfaces.srv import SaveMap, SaveVoxelMap, SetGoal, NavigateToGoal, InternalRequestNavigate, InternalCancelNavigate, InternalRequestRecovery
 
 from phaseshift_control.slam_controller import SlamController
 from phaseshift_control.nav2_controller import Nav2Controller
@@ -38,8 +42,18 @@ class OrchestratorNode(Node):
 
     def __init__(self):
         super().__init__('orchestrator')
-        self.get_logger().info("Orchestrator started")
+        self._log_phase("ORCHESTRA NODE", "Started...")
 
+        # ------------------------------
+        # PARAMETERS
+        # ------------------------------
+        self.declare_parameter("project_name", "demo")
+
+        self.project_name = self.get_parameter("project_name").value
+        self.use_example_map = self.project_name == "demo"
+        self.example_map_name = "demo"
+
+        self._log_phase("ORCHESTRA NODE - PARAM", f"use_example_map={self.use_example_map} / example_map_name={self.example_map_name} / project_name={self.project_name}")
 
         # ------------------------------
         # CONTROLLER 
@@ -59,6 +73,11 @@ class OrchestratorNode(Node):
             self.handle_save_map
         )
 
+        self._voxel_save_client = self.create_client(
+            SaveVoxelMap,
+            "/system/save_voxel_map"
+        )
+
         self.set_goal_srv = self.create_service(
             SetGoal,
             '/system/set_goal',
@@ -69,6 +88,29 @@ class OrchestratorNode(Node):
             NavigateToGoal,
             '/system/navigate',
             self.handle_navigate
+        )
+
+        # ------------------------------
+        # PERCEPTION GEOMETRY LAYER
+        # ------------------------------
+        self.voxel_costmap_client = self.create_client(
+            ChangeState,
+            '/voxel_costmap_node/change_state'
+        )
+
+        self._voxel_costmap_set_param_client = self.create_client(
+            SetParameters,
+            '/voxel_costmap_node/set_parameters'
+        )
+
+        self.voxel_change_detection_client = self.create_client(
+            ChangeState,
+            'voxel_change_detection_node/change_state'
+        )
+
+        self._voxel_change_detection_set_param_client = self.create_client(
+            SetParameters,
+            '/voxel_change_detection_node/set_parameters'
         )
 
         # ------------------------------
@@ -116,10 +158,16 @@ class OrchestratorNode(Node):
         # ------------------------------
         # MAP MANAGER
         # ------------------------------
-        self.map_manager = MapManager()
+        package_dir = get_package_share_directory("phaseshift_bringup")
+        package_map_dir = os.path.join(package_dir, "maps")
+        
+        self.map_manager = MapManager(self, package_map_dir)
         self._map_yaml = None
 
-        self.initial_pose_sent = False
+        self._slam_saved = False
+        self._voxel_saved = False
+
+        self.initial_pose_sent = False 
         self._behaviour_activated = False
 
         # initial pose publisher
@@ -127,7 +175,6 @@ class OrchestratorNode(Node):
             PoseWithCovarianceStamped,
             "/initialpose",
             10
-
         )
 
         # Internal state
@@ -161,13 +208,13 @@ class OrchestratorNode(Node):
 
         if phase == SystemPhase.BOOT:
             self.get_logger().info("[Boot]System booting...")
+            self._behaviour_activated = False
 
         elif phase == SystemPhase.SYSTEM_INITIALIZING:
             self.get_logger().info("[Init]Checking map availability...")
-            self._has_map = self.map_manager.has_map()
-            self.odom_controller.activate()
 
-            self._behaviour_activated = False
+            if not self.odom_controller.is_active():
+                self.odom_controller.activate()
 
         elif phase == SystemPhase.SLAM_PREPARING:
             self.get_logger().info("[SLAM]Waiting for SLAM readiness...")
@@ -190,7 +237,18 @@ class OrchestratorNode(Node):
 
             # Activate behaviour node
             self._activate_behaviour_node()
-        
+
+            # TODO: Need to set this as must-met condition for nav2 phase
+            # Activate voxel costmap node
+            voxel_map_path = self.map_manager.resolve_3d_map(self.project_name)
+            self._activate_voxel_costmap_node(voxel_map_path)
+            # self._activate_change_detection_node(voxel_map_path)
+
+        elif phase == SystemPhase.NAV_READY:
+            voxel_map_path = self.map_manager.resolve_3d_map(self.project_name)
+            self._activate_change_detection_node(voxel_map_path)
+            pass
+
         elif phase == SystemPhase.ERROR:
             self.get_logger().error("System entered ERROR state")
 
@@ -283,7 +341,8 @@ class OrchestratorNode(Node):
             if not self.odom_controller.is_active():
                 return
             
-            if self._has_map:
+            has_map = self.map_manager.resolve_2d_map(self.project_name, False) is not None
+            if self.use_example_map or has_map:
                 self.set_phase(SystemPhase.NAV_PREPARING)
             else:
                 self.set_phase(SystemPhase.SLAM_PREPARING)
@@ -316,8 +375,20 @@ class OrchestratorNode(Node):
 
             # Load map
             if not self.nav2_controller.is_map_loaded():
-                map_yaml = self.map_manager.get_latest_map()
-                self.nav2_controller.load_map(map_yaml)
+
+                if self._map_yaml is None:
+
+                    if self.use_example_map:
+                        self._map_yaml = self.map_manager.resolve_2d_map(self.example_map_name, True)
+                    else:
+                        self._map_yaml = self.map_manager.resolve_2d_map(self.project_name)
+
+                    if self._map_yaml is None:
+                        self.get_logger().error("No runtime map found")
+                        self.set_phase(SystemPhase.ERROR)
+                        return
+
+                self.nav2_controller.load_map(self._map_yaml)
                 return
          
             # Initial pose
@@ -370,33 +441,28 @@ class OrchestratorNode(Node):
             response.message = "SLAM not active"
             return response
 
-        map_name = request.map_name.strip()
+        map_name = f"{self.project_name}"
         if map_name == "":
             response.success = False
             response.message = "Invalid map name"
             return response
 
-        if "/" in map_name:
-            response.success = False
-            response.message = "Map name must not contain '/'"
-            return response
-
         self.set_phase(SystemPhase.MAP_SAVING)
-        timestamp = int(time.time())
-        map_file = f"{map_name}_{timestamp}"
 
-        map_path = os.path.join(self.map_manager.map_directory, map_file)
-        self.slam_controller.save_map_async(map_path)
+        # 2D map
+        base_path = self.map_manager.generate_2d_map_path(map_name)
+        self.slam_controller.save_map_async(
+            base_path,
+            on_done=self._on_slam_saved
+        )
+
+        # 3D map
+        voxel_path = self.map_manager.generate_3d_map_path(map_name)
+        self._save_voxel_map_async(voxel_path)
 
         response.success = True
         response.message = f"Saving map {map_name}"
         return response
-
-    # def on_map_save_succeeded(self):
-    #     self.set_phase(SystemPhase.MAP_SAVED)
-
-    # def on_map_save_failed(self):
-    #     self.set_phase(SystemPhase.SLAM_ACTIVE)
 
     def handle_set_goal(self, request, response):
         if self.phase != SystemPhase.NAV_READY:
@@ -477,15 +543,14 @@ class OrchestratorNode(Node):
     def _on_behaviour_navigate_request(self, request, response):
 
         self.nav2_controller.set_goal(
-            x=request.goal.x,
-            y=request.goal.y,
-            yaw=request.goal.yaw,
-            frame_id=request.goal.frame_id
+            x=request.goal.pose.position.x,
+            y=request.goal.pose.position.y,
+            yaw=0
         )
 
         self.set_phase(SystemPhase.NAV_EXECUTING)
 
-        response.success = True
+        response.accepted = True
         response.message = "Goal stored"
         return response
     
@@ -542,6 +607,139 @@ class OrchestratorNode(Node):
             response.message = "No active navigation"
 
         return response
+
+    # ======================================================
+    # PERCEPTION GEOMETRY
+    # ======================================================
+
+    def _activate_voxel_costmap_node(self, voxel_map_path: str):
+        try:
+            while not self._voxel_costmap_set_param_client.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn("Waiting for voxel_costmap_node")
+
+            params = Parameter(
+                'voxel_map_path',
+                Parameter.Type.STRING,
+                voxel_map_path
+            )
+
+            param_req = SetParameters.Request()
+            param_req.parameters = [params.to_parameter_msg()]
+            future = self._voxel_costmap_set_param_client.call_async(param_req)
+            future.add_done_callback(self._on_set_voxel_map)
+
+        except Exception as e:
+            self.get_logger().error(f"Failed to activate perception geometry node ... {e}")
+
+    def _on_set_voxel_map(self, future):
+
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Voxel Costmap Set Param failed: {e}")
+            return
+
+        for r in result.results:
+            if not r.successful:
+                self.get_logger().error("Parameter set failed")
+                return
+
+        # Start 
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_CONFIGURE
+
+        self.get_logger().info("Configuring Voxel Costmap Node...")
+        
+        future = self.voxel_costmap_client.call_async(req)
+        future.add_done_callback(self._on_perception_geometry_configured)
+
+    def _on_perception_geometry_configured(self, future):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Voxel Costmap configure Param failed: {e}")
+            return
+
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_ACTIVATE
+
+        self.get_logger().info("Activating Voxel Costmap Node...")
+        
+        future = self.voxel_costmap_client.call_async(req)
+        future.add_done_callback(self._on_perception_geometry_activated)
+
+    def _on_perception_geometry_activated(self, future):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Voxel Costmap configure Param failed: {e}")
+            return
+        
+    # ------------------------------------------------------
+
+    def _activate_change_detection_node(self, voxel_map_path: str):
+        try:
+            while not self._voxel_change_detection_set_param_client.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn("Waiting for voxel_change_detection_node")
+
+            params = Parameter(
+                'voxel_map_path',
+                Parameter.Type.STRING,
+                voxel_map_path
+            )
+
+            param_req = SetParameters.Request()
+            param_req.parameters = [params.to_parameter_msg()]
+            future = self._voxel_change_detection_set_param_client.call_async(param_req)
+            future.add_done_callback(self._on_set_voxel_map_change_detection)
+
+        except Exception as e:
+            self.get_logger().error(f"Failed to activate perception geometry node ... {e}")
+
+    def _on_set_voxel_map_change_detection(self, future):
+
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Voxel Change Detection Set Param failed: {e}")
+            return
+
+        for r in result.results:
+            if not r.successful:
+                self.get_logger().error("Parameter set failed")
+                return
+
+        # Start 
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_CONFIGURE
+
+        self.get_logger().info("Configuring Change Detection Node...")
+        
+        future = self.voxel_change_detection_client.call_async(req)
+        future.add_done_callback(self._on_change_detection_configured)
+
+    def _on_change_detection_configured(self, future):
+
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Voxel Change Detection Param failed: {e}")
+            return
+
+        req = ChangeState.Request()
+        req.transition.id = Transition.TRANSITION_ACTIVATE
+
+        self.get_logger().info("Activating Change Detection Node...")
+        
+        future = self.voxel_change_detection_client.call_async(req)
+        future.add_done_callback(self._on_change_detection_activated)
+
+    def _on_change_detection_activated(self, future):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Voxel Change Detection Param failed: {e}")
+            return
 
     # ======================================================
     # Utility
@@ -602,16 +800,59 @@ class OrchestratorNode(Node):
         
         return no_progress
     
-    def _start_navigation(self, goal: PoseStamped) -> tuple[bool, str]:
-        if self.phase not in [SystemPhase.NAV_READY, SystemPhase.NAV_EXECUTING]:
-            return False, "Navigation is not available in current phase"
+    # ======================================================
+    # Map 
+    # ======================================================
+    def _save_voxel_map_async(self, path: str):
 
-        success = self.nav2_controller.navigate_to_pose(goal)
+        if not self._voxel_save_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().error("Voxel save service not available")
+            return
+
+        request = SaveVoxelMap.Request()
+        request.path = path
+
+        future = self._voxel_save_client.call_async(request)
+
+        future.add_done_callback(self._on_voxel_saved)
+
+    def _on_voxel_saved(self, future):
+
+        try:
+            result = future.result()
+
+            if not result.success:
+                self.get_logger().error("Voxel map save failed")
+                self.set_phase(SystemPhase.ERROR)
+                return
+
+            self.get_logger().info("Voxel map saved successfully")
+            self._voxel_saved = True
+            self._check_all_maps_saved()
+
+        except Exception as e:
+            self.get_logger().error(f"Voxel save exception: {e}")
+            self.set_phase(SystemPhase.ERROR)
+
+    def _on_slam_saved(self, success: bool):
+
         if not success:
-            return False, "Failed to send goal to Nav2"
+            self.get_logger().error("2D map save failed")
+            self.set_phase(SystemPhase.ERROR)
+            return
 
-        self.set_phase(SystemPhase.NAV_EXECUTING)
-        return True, "Goal sent"
+        self.get_logger().info("2D map saved")
+
+        self._slam_saved = True
+        self._check_all_maps_saved()
+
+    def _check_all_maps_saved(self):
+
+        if self._slam_saved and self._voxel_saved:
+            self.get_logger().info("All maps saved")
+
+            self.set_phase(SystemPhase.MAP_SAVED)        
+
 
 # ======================================================
 # Main Entry

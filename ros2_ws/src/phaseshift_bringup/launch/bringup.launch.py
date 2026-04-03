@@ -9,6 +9,8 @@ import os
 
 def generate_launch_description():
 
+    project_name = LaunchConfiguration("project_name")
+
     pkg_bringup = get_package_share_directory('phaseshift_bringup')
 
     # ==========================
@@ -56,6 +58,20 @@ def generate_launch_description():
         output="screen"
     )
 
+
+    # ==========================
+    # Perception Layer
+    # ==========================
+    perception_geometry_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('phaseshift_perception_geometry'),
+                'launch',
+                'perception_geometry.launch.py'
+            )
+        )
+    )
+
     # ==========================
     # Perception Layer
     # ==========================
@@ -79,14 +95,24 @@ def generate_launch_description():
                 'launch',
                 'system.launch.py'
             )
-        )
+        ),
+        launch_arguments={
+            "project_name": project_name
+        }.items()
     )
 
     return LaunchDescription([
+
+        DeclareLaunchArgument(
+            "project_name",
+            default_value="demo"
+        ),
+
         robot_state_publisher,
         odom_node,
         costmap_node,
         nav_launch,
+        perception_geometry_launch,
         perception_launch,
         orchestrator_launch
     ])

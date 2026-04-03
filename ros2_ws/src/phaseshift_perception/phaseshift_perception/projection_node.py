@@ -65,7 +65,6 @@ class ProjectionNode(LifecycleNode):
 
             self._sub_det = self.create_subscription(
                 Detection2DArray,
-                # '/perception/detections_2d',
                 '/perception/tracked_detections',
                 self._detection_callback,
                 qos_output
@@ -167,7 +166,7 @@ class ProjectionNode(LifecycleNode):
 
         if self._latest_depth is None or self._camera_info is None:
             return
-        
+
         fx = self._camera_info.k[0]
         fy = self._camera_info.k[4]
         cx = self._camera_info.k[2]
@@ -260,7 +259,6 @@ class ProjectionNode(LifecycleNode):
             point_cam.point.x = float(x)
             point_cam.point.y = float(y)
             point_cam.point.z = float(z)
-
 
             # self.get_logger().info(f"u,v: {u},{v}")
             # self.get_logger().info(f"depth: {z}")

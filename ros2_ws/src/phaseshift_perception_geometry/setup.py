@@ -1,8 +1,6 @@
 from setuptools import find_packages, setup
-from glob import glob
-import os
 
-package_name = 'phaseshift_bringup'
+package_name = 'phaseshift_perception_geometry'
 
 setup(
     name=package_name,
@@ -12,29 +10,24 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/launch', ['launch/perception_geometry.launch.py']),
 
-        # launch files
-        (os.path.join('share', package_name, 'launch'),
-            glob('launch/*.launch.py')),
-
-        # urdf files
-        (os.path.join('share', package_name, 'urdf'),
-            glob('urdf/*')),
-
-        # demo map
-        (os.path.join('share', package_name, 'maps'),
-            glob('maps/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='jimmy',
+    maintainer='eun',
     maintainer_email='eunhyeon1212p@gmail.com',
     description='TODO: Package description',
     license='TODO: License declaration',
-    tests_require=['pytest'],
+    extras_require={
+        'test': [
+            'pytest',
+        ],
+    },
     entry_points={
         'console_scripts': [
-            'costmap_adapter_node = phaseshift_bringup.costmap_adapter_node:main',
+            'voxel_change_detection_node = phaseshift_perception_geometry.voxel_change_detection_node:main',
+            'voxel_costmap_node = phaseshift_perception_geometry.voxel_costmap_node:main',
         ],
     },
 )

@@ -35,7 +35,7 @@ class YoloDetectorNode(LifecycleNode):
         self._path = os.path.join(pkg_path, "models", "yolov8n.pt")
 
         self.get_logger().info("[YOLO] Lifecycle Node Created...")
-
+ 
     # -----------------------------
     # CONFIGURE
     # -----------------------------

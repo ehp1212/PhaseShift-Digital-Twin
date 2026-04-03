@@ -2,11 +2,6 @@ using System;
 using System.Threading.Tasks;
 using UnityEngine;
 
-public enum InputMode
-{
-    SLAM,
-    NAV2
-}
 /*
 데이터	                ROS Source
 Goal Marker	            SetGoal request

@@ -21,6 +21,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/internal/NavState.msg"
 
   "srv/SaveMap.srv"
+  "srv/SaveVoxelMap.srv"
   "srv/SetGoal.srv"
   "srv/NavigateToGoal.srv"
 

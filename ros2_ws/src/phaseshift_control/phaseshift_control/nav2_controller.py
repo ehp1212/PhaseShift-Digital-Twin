@@ -46,7 +46,6 @@ class Nav2Controller:
 
         self.lifecycle = NavLifeCycleManager(node)
 
-
         # -----------------------------
         # Map
         # -----------------------------
@@ -90,9 +89,6 @@ class Nav2Controller:
             "/system/navigation_feedback",
             10
         )
-
-
-
 
         self._status = NavStatus()
         self._distance_remaining = None
@@ -206,7 +202,7 @@ class Nav2Controller:
     # Set Goal
     # =========================================================
 
-    def set_goal(self, x: float, y: float, yaw: float, frame_id: str):
+    def set_goal(self, x: float, y: float, yaw: float, frame_id: str = None):
         
         pose = self._build_pose(x, y, yaw, "map")
         self._goal_pose = pose
