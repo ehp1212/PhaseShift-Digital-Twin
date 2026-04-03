@@ -30,6 +30,7 @@ class PerceptionController:
         self._yolo_tracker_name = '/yolo_tracker_node'
         self._projection_name = '/projection_node'
         self._memory_node_name = '/detection_memory_node'
+        self._voxel_state_est_node_name = '/voxel_state_estimator_node'
 
         # YOLO node client
         self._yolo_client = node.create_client(
@@ -53,27 +54,37 @@ class PerceptionController:
             f'{self._memory_node_name}/change_state'
         )
 
+        self._voxel_state_est_node_client = node.create_client(
+            ChangeState,
+            f'{self._voxel_state_est_node_name}/change_state'
+        )
+
         self._state = PerceptionControllerState.IDLE
 
         self._yolo_configured = False
         self._yolo_tracker_configured =False
         self._projection_configured = False
         self._memory_node_configured = False
+        self._voxel_state_est_node_configured = False
+
 
         self._yolo_deactivated = False
         self._yolo_tracker_deactivated = False
         self._projection_deactivated = False
         self._memory_node_deactivated = False
+        self._voxel_state_est_node_deactivated = False
 
         self._yolo_activated = False
         self._yolo_tracker_activated = False
         self._projection_activated = False
         self._memory_node_activated = False
+        self._voxel_state_est_node_activated = False
 
         self._yolo_cleaned = False
         self._yolo_tracker_cleaned = False
         self._projection_cleaned = False
         self._memory_node_cleaned = False
+        self._voxel_state_est_node_cleaned = False
 
     # ========================================
     # PUBLIC API
@@ -107,38 +118,43 @@ class PerceptionController:
         self._yolo_tracker_configured = False
         self._projection_configured = False
         self._memory_node_configured = False
+        self._voxel_state_est_node_configured = False
 
         self._yolo_cleaned = False
         self._yolo_tracker_cleaned = False
         self._projection_cleaned = False
         self._memory_node_cleaned = False
+        self._voxel_state_est_node_cleaned = False
         
-        # Activate process YOLO     
+        # Activate process    
         self._call(
             self._yolo_client,
             self.CONFIGURE_ID,
             self._on_yolo_configured
         )
 
-        # Activate process YOLO Tracker     
         self._call(
             self._yolo_tracker_client,
             self.CONFIGURE_ID,
             self._on_yolo_tracker_configured
         )
         
-        # Activate process PROJECTION
         self._call(
             self._projection_client,
             self.CONFIGURE_ID,
             self._on_projection_configured
         )
 
-        # Activate process MEMORY NODE
         self._call(
             self._memory_node_client,
             self.CONFIGURE_ID,
             self._on_memory_node_configured
+        )
+
+        self._call(
+            self._voxel_state_est_node_client,
+            self.CONFIGURE_ID,
+            self._voxel_est_node_configured
         )
 
     def deactivate(self) -> bool:
@@ -159,8 +175,9 @@ class PerceptionController:
         self._yolo_tracker_deactivated = False
         self._projection_deactivated = False
         self._memory_node_deactivated = False
+        self._voxel_state_est_node_deactivated = False
 
-        # Cleanup process YOLO
+        # Cleanup process 
         self._call(
             self._yolo_client,
             self.DEACTIVATE_ID,
@@ -173,7 +190,6 @@ class PerceptionController:
             self._on_yolo_tracker_deactivated
         )
         
-        # Cleanup process PROJECTION
         self._call(
             self._projection_client,
             self.DEACTIVATE_ID,
@@ -184,6 +200,12 @@ class PerceptionController:
             self._memory_node_client,
             self.DEACTIVATE_ID,
             self._on_memory_node_deactivated
+        )
+
+        self._call(
+            self._voxel_state_est_node_client,
+            self.DEACTIVATE_ID,
+            self._voxel_est_node_deactivated
         )
 
     # ========================================
@@ -303,6 +325,16 @@ class PerceptionController:
         self._memory_node_configured = True
         self._try_activate()
 
+    def _voxel_est_node_configured(self, future):
+
+        result = future.result()
+        if not result.success:
+            self.node.get_logger().error("Voxel estimator node configure failed")
+            return
+        
+        self._voxel_state_est_node_configured = True
+        self._try_activate()
+
     def _on_yolo_activated(self, future):
 
         result = future.result()
@@ -337,16 +369,27 @@ class PerceptionController:
 
         result = future.result()
         if not result.success:
-            self.node.get_logger().error("Projection activate failed")
+            self.node.get_logger().error("Memory node activate failed")
             return
 
         self._memory_node_activated = True
         self._try_set_active()
 
+    def _voxel_est_node_activated(self, future):
+
+        result = future.result()
+        if not result.success:
+            self.node.get_logger().error("Voxel Estimator activate failed")
+            return
+
+        self._voxel_state_est_node_activated = True
+        self._try_set_active()
+
     def _try_activate(self):
 
         if not (self._yolo_configured and self._projection_configured
-                 and self._yolo_tracker_configured and self._memory_node_configured):
+                 and self._yolo_tracker_configured and self._memory_node_configured
+                 and self._voxel_state_est_node_configured):
             return
 
         self.node.get_logger().info("[PERCEPTION] Both configured → activating")
@@ -377,10 +420,17 @@ class PerceptionController:
             self._on_memory_node_activated
         )
 
+        self._call(
+            self._voxel_state_est_node_client,
+            self.ACTIVATE_ID,
+            self._voxel_est_node_activated
+        )
+
     def _try_set_active(self):
 
         if not (self._yolo_activated and self._projection_activated 
-                and self._yolo_tracker_activated and self._memory_node_activated):
+                and self._yolo_tracker_activated and self._memory_node_activated
+                and self._voxel_state_est_node_activated):
             return
 
         self._state = PerceptionControllerState.ACTIVE
@@ -430,6 +480,16 @@ class PerceptionController:
         self._memory_node_deactivated = True
         self._try_cleanup()
 
+    def _voxel_est_node_deactivated(self, future):
+
+        result = future.result()
+        if not result.success:
+            self.node.get_logger().error("Voxel estimator deactivate failed")
+            return
+
+        self._voxel_state_est_node_deactivated = True
+        self._try_cleanup()
+
     def _on_yolo_cleaned(self, future):
 
         result = future.result()
@@ -464,10 +524,20 @@ class PerceptionController:
 
             result = future.result()
             if not result.success:
-                self.node.get_logger().error("Projection cleanup failed")
+                self.node.get_logger().error("Memory Node cleanup failed")
                 return
 
             self._memory_node_cleaned = True
+            self._try_set_inactive()
+
+    def _voxel_est_node_cleaned(self, future):
+
+            result = future.result()
+            if not result.success:
+                self.node.get_logger().error("Voxel State Estimator cleanup failed")
+                return
+
+            self._voxel_state_est_node_cleaned = True
             self._try_set_inactive()
 
     def _try_cleanup(self):
@@ -503,11 +573,18 @@ class PerceptionController:
             self.CLEANUP_ID,
             self._on_memory_node_cleaned
         )
+
+        self._call(
+            self._voxel_state_est_node_client,
+            self.CLEANUP_ID,
+            self._voxel_est_node_cleaned
+        )
     
     def _try_set_inactive(self):
 
         if not (self._yolo_cleaned and self._yolo_tracker_cleaned 
-                and self._projection_cleaned and self._memory_node_cleaned):
+                and self._projection_cleaned and self._memory_node_cleaned
+                and self._voxel_state_est_node_cleaned):
             return
 
         self._state = PerceptionControllerState.INACTIVE

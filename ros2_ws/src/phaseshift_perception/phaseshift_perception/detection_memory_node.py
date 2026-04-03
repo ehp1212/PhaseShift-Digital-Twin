@@ -6,13 +6,13 @@ import math
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
-from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesis, ObjectHypothesisWithPose
-from phaseshift_interfaces.msg import DetectedObjectArray
+from phaseshift_interfaces.msg import EstimatedObjectArray, TrackedObject, TrackedObjectArray
 
 # -----------------------------
 # STATE
 # -----------------------------
 class TrackState(Enum):
+    TENTATIVE = 0
     ACTIVE = 1
     LOST = 2
     EXPIRED = 3
@@ -24,11 +24,19 @@ class DetectionMemoryNode(LifecycleNode):
         self._sub = None
         self._pub = None
 
-        self._ttl = 10.0
         self._max_distance = 10.0
 
         # id -> track
         self._tracks = {} 
+        self._id_counter = 0
+
+        self._match_distance_threshold = 1.0
+        self._active_timeout = 0.5
+        self._ttl = 2.0
+        self._reacquire_time = 1.0
+        self._min_hits = 3
+        self._max_misses = 5
+        self._velocity_alpha = 0.7
 
         self._qos_result = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
@@ -45,15 +53,15 @@ class DetectionMemoryNode(LifecycleNode):
         self.get_logger().info("Configuring YOLO Tracker nodes...")
         try:
             self._sub = self.create_subscription(
-                DetectedObjectArray,
-                '/perception/objects_3d',
+                EstimatedObjectArray,
+                '/perception/estimated_objects',
                 self._callback,
                 self._qos_result
             )
 
             self._pub = self.create_publisher(
-                DetectedObjectArray,
-                '/perception/objects_filtered',
+                TrackedObjectArray,
+                '/perception/tracked_objects',
                 self._qos_result
             )
 
@@ -87,7 +95,7 @@ class DetectionMemoryNode(LifecycleNode):
                     self._sub = None
 
             if self._pub:
-                self.destroy_publisher(self._pubs)
+                self.destroy_publisher(self._pub)
                 self._pub = None
         except Exception as e:
                 self.get_logger().error(f"Cleanup failed: {e}")
@@ -122,49 +130,128 @@ class DetectionMemoryNode(LifecycleNode):
     # DETECTION MEMORY PROCESS
     # -----------------------------
     def _update_tracks(self, msg, now):
-        for obj in msg.objects:
+        matched_track_ids = set()
 
-            track_id = obj.class_id # This is track id for now
-            if track_id not in self._tracks:
-                self._tracks[track_id] = self._create_track(obj, now)
-            
+        for obj in msg.objects:
+            track = self._find_matching_track(obj, now)
+
+            if track is None:
+                new_track = self._create_track(obj, now)
+                self._tracks[new_track['id']] = new_track
+                matched_track_ids.add(new_track['id'])
             else:
-                self._update_track(self._tracks[track_id], obj, now)
-    
-    def _create_track(self, obj, now):
-        return {
-            'obj': obj,
-            'last_seen': now,
-            'state': TrackState.ACTIVE
-        }
-    
+                self._update_track(track, obj, now)
+                matched_track_ids.add(track['id'])
+
+        for track_id, track in self._tracks.items():
+            if track_id not in matched_track_ids:
+                track['misses'] = track.get('misses', 0) + 1
+
     def _update_track(self, track, obj, now):
+
+        prev = track['obj'].pose.position
+        curr = obj.pose.position
+
+        dt = now - track['last_seen']
+
+        if dt > 0.0:
+            new_vx = (curr.x - prev.x) / dt
+            new_vy = (curr.y - prev.y) / dt
+        else:
+            new_vx, new_vy = 0.0, 0.0
+
+        prev_vx, prev_vy, prev_vz = track.get('velocity', (0.0, 0.0, 0.0))
+        alpha = self._velocity_alpha
+
+        smoothed_vx = alpha * prev_vx + (1.0 - alpha) * new_vx
+        smoothed_vy = alpha * prev_vy + (1.0 - alpha) * new_vy
+
+        track['velocity'] = (smoothed_vx, smoothed_vy, 0.0)
+
         track['obj'] = obj
         track['last_seen'] = now
-        track['state'] = TrackState.ACTIVE
+        track['hits'] = track.get('hits', 0) + 1
+        track['misses'] = 0
+        
+        if track['state'] == TrackState.LOST:
+            track['state'] = TrackState.ACTIVE
 
+        if track['state'] == TrackState.TENTATIVE and track['hits'] >= self._min_hits:
+            track['state'] = TrackState.ACTIVE  
+
+    def _find_matching_track(self, obj, now):
+
+        best_track = None
+        best_dist = float('inf')
+
+        for track in self._tracks.values():
+            if track['state'] == TrackState.EXPIRED:
+                continue
+
+            if track['obj'].class_id != obj.class_id:
+                continue
+
+            dt = now - track['last_seen']
+            if dt > self._reacquire_time:
+                continue
+
+            dist = self._distance(track['obj'], obj)
+            if dist > self._match_distance_threshold:
+                continue
+
+            if dist < best_dist:
+                best_dist = dist
+                best_track = track
+
+        return best_track
+
+    def _create_track(self, obj, now):
+        return {
+            'id': self._next_id(),
+            'obj': obj,
+            'last_seen': now,
+            'state': TrackState.TENTATIVE,
+            'velocity': (0.0, 0.0, 0.0),
+            'hits': 1,
+            'misses': 0,
+        }
+            
     def _update_states(self, now):
         for track in self._tracks.values():
             dt = now - track['last_seen']
+            misses = track.get('misses', 0)
+            hits = track.get('hits', 0)
 
-            if dt < self._ttl:
-                if track['state'] != TrackState.ACTIVE:
+            if track['state'] == TrackState.TENTATIVE:
+                if hits >= self._min_hits:
+                    track['state'] = TrackState.ACTIVE
+                elif misses > self._max_misses or dt > self._ttl:
+                    track['state'] = TrackState.EXPIRED
+
+            elif track['state'] == TrackState.ACTIVE:
+                if dt <= self._active_timeout:
+                    track['state'] = TrackState.ACTIVE
+                elif dt <= self._ttl:
                     track['state'] = TrackState.LOST
-            else:
-                track['state'] = TrackState.EXPIRED
+                else:
+                    track['state'] = TrackState.EXPIRED
+
+            elif track['state'] == TrackState.LOST:
+                if dt > self._ttl or misses > self._max_misses:
+                    track['state'] = TrackState.EXPIRED
 
     def _filter_tracks(self):
         result = []
 
         for track in self._tracks.values():
             
-            if track['state'] == TrackState.EXPIRED:
+            if track['state'] != TrackState.ACTIVE:
                 continue
 
             if not self._within_distance(track['obj']):
                 continue
 
-            result.append(track['obj'])
+            result.append(track)
         
         return result
     
@@ -175,9 +262,29 @@ class DetectionMemoryNode(LifecycleNode):
         }
 
     def _publish(self, tracks, header):
-        out = DetectedObjectArray()
+
+        out = TrackedObjectArray()
         out.header = header
-        out.objects = tracks
+
+        for track in tracks:
+
+            msg = TrackedObject()
+
+            msg.id = track['id']
+            msg.class_id = track['obj'].class_id
+            msg.pose = track['obj'].pose
+
+            vx, vy, vz = track.get('velocity', (0.0, 0.0, 0.0))
+            msg.velocity.x = vx
+            msg.velocity.y = vy
+            msg.velocity.z = vz
+
+            msg.is_dynamic = track['obj'].is_dynamic
+            msg.motion_confidence = track['obj'].motion_confidence
+
+            msg.last_seen_time = track['last_seen']
+
+            out.objects.append(msg)
 
         self._pub.publish(out)
 
@@ -193,6 +300,19 @@ class DetectionMemoryNode(LifecycleNode):
         d = math.sqrt(x*x + y*y)
 
         return d < self._max_distance
+
+    def _next_id(self):
+        self._id_counter += 1
+        return self._id_counter
+    
+    def _distance(self, obj1, obj2):
+        p1 = obj1.pose.position
+        p2 = obj2.pose.position
+
+        dx = p1.x - p2.x
+        dy = p1.y - p2.y
+
+        return math.sqrt(dx*dx + dy*dy)
 
 def main(args=None):
     rclpy.init(args=args)

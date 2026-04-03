@@ -1,0 +1,10 @@
+string class_id
+float32 confidence
+geometry_msgs/Pose pose
+
+bool is_dynamic
+float32 motion_confidence
+float32 dynamic_point_count
+float32 estimated_distance
+
+geometry_msgs/Vector3 estimated_size

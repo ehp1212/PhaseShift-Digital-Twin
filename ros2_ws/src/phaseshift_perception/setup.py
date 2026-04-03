@@ -35,6 +35,7 @@ setup(
             'projection_node = phaseshift_perception.projection_node:main',
             'detection_nav_adapter = phaseshift_perception.detection_nav_adapter:main',
             'detection_memory_node = phaseshift_perception.detection_memory_node:main',
+            'voxel_state_estimator_node = phaseshift_perception.voxel_state_estimator_node:main',
         ],
     },
 )

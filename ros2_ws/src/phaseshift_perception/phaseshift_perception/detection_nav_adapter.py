@@ -3,12 +3,12 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
+from std_msgs.msg import Header
 
-from phaseshift_interfaces.msg import DetectedObjectArray
-
-
+from phaseshift_interfaces.msg import TrackedObjectArray
 class DetectionNavAdapter(Node):
 
     def __init__(self):
@@ -17,11 +17,18 @@ class DetectionNavAdapter(Node):
         # ---------------------------
         # Subscriber
         # ---------------------------
+
+        qos_sensor = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5
+        )
+
         self._sub = self.create_subscription(
-            DetectedObjectArray,
-            '/perception/objects_filtered',
+            TrackedObjectArray,
+            '/perception/tracked_objects',
             self._callback,
-            10
+            qos_sensor
         )
 
         # ---------------------------
@@ -30,7 +37,7 @@ class DetectionNavAdapter(Node):
         self._pub = self.create_publisher(
             PointCloud2,
             "/perception/obstacles",
-            10
+            qos_sensor
         )
 
         # ---------------------------
@@ -47,7 +54,7 @@ class DetectionNavAdapter(Node):
     # Callback (store only)
     # --------------------------------------------------
 
-    def _callback(self, msg: DetectedObjectArray):
+    def _callback(self, msg: TrackedObjectArray):
         self._latest_objects = msg
 
     # --------------------------------------------------
@@ -72,6 +79,12 @@ class DetectionNavAdapter(Node):
             # Dynamic radius
             # ---------------------------
             radius = self._compute_dynamic_radius(obj)
+            if obj.is_dynamic:
+                radius *= 1.5
+            else:
+                radius *= 1.0
+            
+            radius = max(radius, 0.2)
 
             # ---------------------------
             # Circle sampling
@@ -80,14 +93,12 @@ class DetectionNavAdapter(Node):
 
             points.extend(circle_pts)
 
-        if len(points) == 0:
-            return
-
         # ---------------------------
-        # PointCloud2 생성
+        # PointCloud2
         # ---------------------------
-        header = msg.header
-        header.frame_id = "map"  # 반드시 map or odom
+        header = Header()
+        header.stamp = msg.header.stamp
+        header.frame_id = "map"
 
         pc_msg = point_cloud2.create_cloud_xyz32(header, points)
 
@@ -99,7 +110,10 @@ class DetectionNavAdapter(Node):
 
     def _compute_dynamic_radius(self, obj):
 
-        z = obj.pose.position.z
+        x = obj.pose.position.x
+        y = obj.pose.position.y
+        dist = np.sqrt(x*x + y*y)
+
         class_id = obj.class_id
 
         # base size by class
@@ -111,7 +125,7 @@ class DetectionNavAdapter(Node):
             base = 0.25
 
         # depth scaling
-        scale = np.clip(z * 0.15, 0.5, 1.5)
+        scale = np.clip(dist * 0.1, 0.5, 1.5)
 
         return base * scale
 
