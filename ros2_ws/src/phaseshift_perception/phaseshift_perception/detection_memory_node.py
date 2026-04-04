@@ -1,11 +1,11 @@
 import rclpy
-
-from enum import Enum
 import math
+from enum import Enum
 
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
+from collections import deque
 from phaseshift_interfaces.msg import EstimatedObjectArray, TrackedObject, TrackedObjectArray
 
 # -----------------------------
@@ -32,10 +32,10 @@ class DetectionMemoryNode(LifecycleNode):
 
         self._match_distance_threshold = 1.0
         self._active_timeout = 0.5
-        self._ttl = 2.0
+        self._ttl = 4.0
         self._reacquire_time = 1.0
         self._min_hits = 3
-        self._max_misses = 5
+        self._max_misses = 10
         self._velocity_alpha = 0.7
 
         self._qos_result = QoSProfile(
@@ -173,6 +173,10 @@ class DetectionMemoryNode(LifecycleNode):
 
         track['obj'] = obj
         track['last_seen'] = now
+
+        pos = obj.pose.position
+        track['history'].append((pos.x, pos.y))
+
         track['hits'] = track.get('hits', 0) + 1
         track['misses'] = 0
         
@@ -209,6 +213,7 @@ class DetectionMemoryNode(LifecycleNode):
         return best_track
 
     def _create_track(self, obj, now):
+        pos = obj.pose.position
         return {
             'id': self._next_id(),
             'obj': obj,
@@ -217,6 +222,9 @@ class DetectionMemoryNode(LifecycleNode):
             'velocity': (0.0, 0.0, 0.0),
             'hits': 1,
             'misses': 0,
+
+            'history': deque([(pos.x, pos.y)], maxlen=10),
+            'state_type': "UNKNOWN"
         }
             
     def _update_states(self, now):
@@ -243,6 +251,15 @@ class DetectionMemoryNode(LifecycleNode):
                 if dt > self._ttl or misses > self._max_misses:
                     track['state'] = TrackState.EXPIRED
 
+            if track['state'] == TrackState.ACTIVE:
+                track['state_type'] = self._classify_state(track)
+
+            elif track['state'] == TrackState.EXPIRED:
+                track['state_type'] = "EXPIRED"
+
+            else:
+                track['state_type'] = "UNKNOWN"
+
     def _filter_tracks(self):
         result = []
 
@@ -264,6 +281,46 @@ class DetectionMemoryNode(LifecycleNode):
             if v['state'] != TrackState.EXPIRED
         }
 
+    def _classify_state(self, track):
+        """
+        Temporal classification:
+        - STATIC
+        - STATIC_NEW
+        - DYNAMIC
+        """
+
+        positions = track['history']
+
+        if len(positions) < 2:
+            return "UNKNOWN"
+
+        if track['state'] != TrackState.ACTIVE:
+            return "UNKNOWN"
+
+        x0, y0 = positions[0]
+        x1, y1 = positions[-1]
+
+        displacement = ((x1 - x0)**2 + (y1 - y0)**2) ** 0.5
+
+        # density (Estimator Node)
+        density = getattr(track['obj'], 'density', 0.0)
+
+        if density == 0.0:
+            if len(positions) > 3:
+                return "STATIC_NEW"
+            return "UNKNOWN"
+
+        if density < 0.5:
+            return "STATIC"
+
+        if displacement < 0.2:
+            return "STATIC_NEW"
+
+        return "DYNAMIC"
+
+    # -----------------------------
+    # PUB
+    # -----------------------------
     def _publish(self, tracks, header):
 
         out = TrackedObjectArray()
@@ -283,8 +340,8 @@ class DetectionMemoryNode(LifecycleNode):
             msg.velocity.z = vz
 
             msg.is_dynamic = track['obj'].is_dynamic
+            msg.state_type = track.get('state_type', "UNKNOWN")
             msg.motion_confidence = track['obj'].motion_confidence
-
             msg.last_seen_time = track['last_seen']
 
             out.objects.append(msg)

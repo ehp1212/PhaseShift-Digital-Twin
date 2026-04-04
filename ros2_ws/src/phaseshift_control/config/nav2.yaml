@@ -135,7 +135,7 @@ planner_server:
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
 
-    expected_planner_frequency: 10.0
+    expected_planner_frequency: 2.0
 
 
 # ==============================
@@ -237,7 +237,7 @@ local_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 1.0
+        inflation_radius: 0.6
         cost_scaling_factor: 3.0
 
 
@@ -305,7 +305,7 @@ global_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.8
+        inflation_radius: 0.6
         cost_scaling_factor: 4.0
 
 

@@ -16,22 +16,32 @@ from phaseshift_interfaces.msg import (
 
 class VoxelStateEstimatorNode(LifecycleNode):
     """
-    VoxelStateEstimatorNode
-
     Role:
-    - Subscribe projected 3D semantic objects from perception pipeline
-    - Subscribe voxel change points from perception_geometry
-    - Estimate object-level voxel state around each detected object
-    - Publish EstimatedObjectArray for downstream memory / tracking / nav adapter
+    - Augment semantic detections with voxel-based geometric state
 
-    Important semantic note:
-    - `is_dynamic` here means "significant change observed around the object"
-      rather than guaranteed physical motion truth.
+    Pipeline:
+    3D Objects (from projection)
+        +
+    Voxel change points
+        ↓
+    State estimation (geometry-based interpretation)
+        ↓
+    EstimatedObject
+
+    Key Idea:
+    - Interpret local spatial change around each object
+    - Convert raw geometry into meaningful state (dynamic, confidence, size)
+
+    Notes:
+    - This node does NOT track over time
+    - This node does NOT perform decision making
+    - It provides enriched perception for downstream modules
     """
 
     MIN_DYNAMIC_POINTS = 10
     RADIUS = 1.0
     CONFIDENCE_SCALE = 20.0
+    DENSITY_THRESHOLD = 2.0
 
     def __init__(self):
         super().__init__("voxel_state_estimator_node")
@@ -170,6 +180,7 @@ class VoxelStateEstimatorNode(LifecycleNode):
             estimated.is_dynamic = state["is_dynamic"]
             estimated.motion_confidence = state["motion_confidence"]
             estimated.dynamic_point_count = float(state["num_points"])
+            estimated.density = float(state["density"])
             estimated.estimated_distance = state["distance"]
 
             estimated.estimated_size.x = float(state["size"][0])
@@ -210,8 +221,13 @@ class VoxelStateEstimatorNode(LifecycleNode):
 
     def _query_points_radius(self, center, radius: float) -> np.ndarray:
         """
-        Return change points within a spherical radius around object center.
+        Select voxel change points within a local radius of the object.
+
+        Purpose:
+        - Associate spatial change with specific object instance
+        - Convert global voxel map into local object-centric view
         """
+
         if self._change_points_np is None or len(self._change_points_np) == 0:
             return np.empty((0, 3), dtype=np.float32)
 
@@ -228,11 +244,10 @@ class VoxelStateEstimatorNode(LifecycleNode):
         Estimate voxel-based object state.
 
         Outputs:
-        - num_points
-        - is_dynamic
-        - motion_confidence
-        - distance
-        - size
+        - change intensity (num_points)
+        - dynamic likelihood (is_dynamic)
+        - confidence (normalized density)
+        - spatial extent (size)
 
         Semantic note:
         - is_dynamic here means "significant change observed"
@@ -240,8 +255,11 @@ class VoxelStateEstimatorNode(LifecycleNode):
         """
         num_points = len(nearby_points)
 
-        # significant change around object
-        is_dynamic = num_points > self.MIN_DYNAMIC_POINTS
+        # density
+        volume = (self.RADIUS * 2) ** 3
+        density = num_points / volume
+
+        is_dynamic = density > self.DENSITY_THRESHOLD
 
         # normalized confidence from local change density
         motion_confidence = float(
@@ -268,6 +286,7 @@ class VoxelStateEstimatorNode(LifecycleNode):
 
         return {
             "num_points": num_points,
+            "density": density,
             "is_dynamic": is_dynamic,
             "motion_confidence": motion_confidence,
             "distance": estimated_distance,

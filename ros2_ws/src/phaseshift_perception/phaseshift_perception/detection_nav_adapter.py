@@ -39,6 +39,7 @@ class DetectionNavAdapter(Node):
         # Internal state
         # ---------------------------
         self._latest_objects = None
+        self._last_points = []
 
         # publish rate (10Hz)
         self.create_timer(0.1, self._publish_timer)
@@ -48,55 +49,65 @@ class DetectionNavAdapter(Node):
     # --------------------------------------------------
     # Callback
     # --------------------------------------------------
-
     def _callback(self, msg: TrackedObjectArray):
         self._latest_objects = msg
 
     # --------------------------------------------------
     # Timer-based publish
     # --------------------------------------------------
-
     def _publish_timer(self):
 
         if self._latest_objects is None:
+            if len(self._last_points) == 0:
+                return
+            points = self._last_points
+
+        else:
+            msg = self._latest_objects
+            points = []
+
+            for obj in msg.objects:
+
+                cx = obj.pose.position.x
+                cy = obj.pose.position.y
+
+                if obj.state_type == "DYNAMIC":
+                    radius = self._compute_dynamic_radius(obj)
+
+                    speed = np.sqrt(obj.velocity.x**2 + obj.velocity.y**2)
+                    radius += np.clip(speed * 0.3, 0.0, 0.5)
+
+                    risk = self._compute_risk(obj)
+                    radius *= (1.0 + risk)
+                    radius = max(radius, 0.4)
+
+                    shape_pts = self._sample_motion_aware(obj, radius)
+
+                elif obj.state_type == "STATIC_NEW":
+                    radius = 0.3
+                    shape_pts = self._sample_circle(cx, cy, radius)
+
+                else:
+                    radius = 0.3
+                    shape_pts = self._sample_circle(cx, cy, radius)
+
+                points.extend(shape_pts)
+
+            self._last_points = points
+
+        # ---------------------------
+        # publish
+        # ---------------------------
+        if len(points) == 0:
             return
 
-        msg = self._latest_objects
-
-        points = []
-
-        for obj in msg.objects:
-
-            cx = obj.pose.position.x
-            cy = obj.pose.position.y
-
-            # ---------------------------
-            # Dynamic radius
-            # ---------------------------
-            radius = self._compute_dynamic_radius(obj)
-
-            speed = np.sqrt(obj.velocity.x**2 + obj.velocity.y**2)
-            radius += np.clip(speed * 0.3, 0.0, 0.5)
-
-            # radius scaling
-            risk = self._compute_risk(obj)
-            radius *= (1.0 + risk)
-            radius = max(radius, 0.2)
-
-            # ---------------------------
-            # Circle sampling
-            # ---------------------------
-            shape_pts = self._sample_motion_aware(obj, radius)
-            points.extend(shape_pts)
-
-        # pointCloud2
         header = Header()
-        header.stamp = msg.header.stamp
+        header.stamp = self.get_clock().now().to_msg()  # 🔥 더 안전
         header.frame_id = "map"
 
         pc_msg = point_cloud2.create_cloud_xyz32(header, points)
         self._pub.publish(pc_msg)
-
+        
     # --------------------------------------------------
     # Dynamic radius
     # --------------------------------------------------
@@ -163,6 +174,9 @@ class DetectionNavAdapter(Node):
         speed = np.sqrt(vx * vx + vy * vy)
 
         # static or very slow object
+        if obj.state_type != "DYNAMIC":
+            return self._sample_circle(cx, cy, radius)
+
         if speed < self.MINIMUM_SPEED_THREDHOLD:
             return self._sample_circle(cx, cy, radius)
         

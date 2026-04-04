@@ -11,6 +11,7 @@ namespace Communication
     {
         public int Id;
         public string Class_Id;
+        public string State_Type;
         public Pose Pose;
         
         public Vector3 Velocity;
@@ -49,6 +50,7 @@ namespace Communication
                 {
                     Id = obj.Id,
                     Class_Id = obj.Class_id,
+                    State_Type = obj.State_type,
                     Pose = obj.Pose,
                     
                     Velocity = obj.Velocity,
