@@ -150,11 +150,13 @@ class VoxelStateEstimatorNode(LifecycleNode):
         for obj in msg.objects:
             center = obj.pose.position
 
+            # get change points from voxel map
             nearby_points = self._query_points_radius(
                 center=center,
                 radius=self.RADIUS,
             )
 
+            # estimate states
             state = self._estimate_state(center, nearby_points)
 
             estimated = EstimatedObject()
@@ -238,17 +240,15 @@ class VoxelStateEstimatorNode(LifecycleNode):
         """
         num_points = len(nearby_points)
 
-        # 1) Significant change around object
+        # significant change around object
         is_dynamic = num_points > self.MIN_DYNAMIC_POINTS
 
-        # 2) Normalized confidence from local change density
+        # normalized confidence from local change density
         motion_confidence = float(
             min(1.0, num_points / self.CONFIDENCE_SCALE)
         )
 
-        # 3) Distance estimate
-        # Current definition:
-        # mean distance from object center to nearby change points
+        # distance estimate
         # This is more meaningful than global-origin distance for this node.
         if num_points > 0:
             center_np = np.array([center.x, center.y, center.z], dtype=np.float32)
@@ -258,7 +258,7 @@ class VoxelStateEstimatorNode(LifecycleNode):
         else:
             estimated_distance = 0.0
 
-        # 4) Axis-aligned bounding box size
+        # axis-aligned bounding box size
         if num_points > 0:
             min_vals = np.min(nearby_points, axis=0)
             max_vals = np.max(nearby_points, axis=0)

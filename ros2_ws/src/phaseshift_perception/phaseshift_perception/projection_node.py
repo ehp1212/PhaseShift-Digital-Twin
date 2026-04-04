@@ -293,45 +293,6 @@ class ProjectionNode(LifecycleNode):
     def _is_valid_pixel(self, u, v, width, height):
         return 0 <= u < width and 0 <= v < height
     
-    def _sample_depth(self, depth_img, u, v):
-        z = depth_img[v, u]
-
-        if z == 0 or not np.isfinite(z):
-            return None
-
-        return float(z)
-    
-    def _collect_points(self, depth_img, samples, fx, fy, cx, cy):
-        points = []
-
-        for (u, v) in samples:
-
-            z = depth_img[v, u]
-
-            if not self._is_valid_depth(z):
-                continue
-
-            x = (u - cx) * z / fx
-            y = (v - cy) * z / fy
-
-            points.append([x, y, z])
-
-        return points
-
-
-    def _estimate_median_point(self, points):
-
-        if len(points) < 5:
-            return None
-        
-        pts = np.array(points)
-
-        x = float(np.median(pts[:, 0]))
-        y = float(np.median(pts[:, 1]))
-        z = float(np.median(pts[:, 2]))
-
-        return x, y, z
-    
     def _compute_bottom_roi(self, u_center, v_center, bbox_w, bbox_h, width, height):
 
         # 최소 크기 보장
@@ -384,27 +345,6 @@ class ProjectionNode(LifecycleNode):
             return False
 
         return True
-        
-    def _sample_depth_region(self, depth_img, u_min, u_max, v_min, v_max):
-
-        if u_min >= u_max or v_min >= v_max:
-            return None
-
-        depth_values = []
-
-        u_samples = np.linspace(u_min, u_max, num=5, dtype=int)
-        v_samples = np.linspace(v_min, v_max, num=5, dtype=int)
-
-        for v in v_samples:
-            for u in u_samples:
-                z = depth_img[v, u]
-                if self._is_valid_depth(z):
-                    depth_values.append(float(z))
-
-        if len(depth_values) < 5:
-            return None
-
-        return float(np.median(depth_values))
 
 def main(args=None):
     rclpy.init(args=args)

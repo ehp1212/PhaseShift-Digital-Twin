@@ -2,6 +2,7 @@ import os
 import threading
 import queue
 
+import time
 import rclpy
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
@@ -33,11 +34,12 @@ class YoloDetectorNode(LifecycleNode):
 
         pkg_path = get_package_share_directory("phaseshift_perception")
         self._path = os.path.join(pkg_path, "models", "yolov8n.pt")
-
+        
+        self._last_inference_time = time.time()
         self.get_logger().info("[YOLO] Lifecycle Node Created...")
  
     # -----------------------------
-    # CONFIGURE
+    # LIFECYCLE
     # -----------------------------
     def on_configure(self, state: State):
         self.get_logger().info("Configuring YOLO nodes...")
@@ -64,15 +66,10 @@ class YoloDetectorNode(LifecycleNode):
             self.get_logger().error(f"Configure failed: {e}")
             return TransitionCallbackReturn.FAILURE
     
-    # -----------------------------
-    # ACTIVATE
-    # -----------------------------
     def on_activate(self, state: State):
         self.get_logger().info("Activating YOLO nodes...")
 
         try:    
-            # self._pub.on_activate()
-
             qos_camera = QoSProfile(
                 reliability=ReliabilityPolicy.BEST_EFFORT,
                 history=HistoryPolicy.KEEP_LAST,
@@ -97,9 +94,6 @@ class YoloDetectorNode(LifecycleNode):
             self.get_logger().error(f"Activate failed: {e}")
             return TransitionCallbackReturn.FAILURE
 
-    # -----------------------------
-    # DEACTIVATE
-    # -----------------------------
     def on_deactivate(self, state):
         self.get_logger().info("Deactivating YOLO nodes...")
 
@@ -112,13 +106,8 @@ class YoloDetectorNode(LifecycleNode):
             self.destroy_subscription(self._sub)
             self._sub = None
         
-        # self._pub.on_deactivate()
-
         return TransitionCallbackReturn.SUCCESS
     
-    # -----------------------------
-    # CLEANUP
-    # -----------------------------
     def on_cleanup(self, state):
         self.get_logger().info("Cleaning up YOLO nodes...")
 
@@ -133,9 +122,13 @@ class YoloDetectorNode(LifecycleNode):
     # IMAGE CALLBACK (lightweight)
     # -----------------------------
     def _image_callback(self, msg: CompressedImage):
-        # Drop frame
+
         if self._queue.full():
-            return 
+            try:
+                # drop old frames
+                self._queue.get_nowait() 
+            except queue.Empty:
+                pass 
         
         try:
             np_arr = np.frombuffer(msg.data, np.uint8)
@@ -150,6 +143,17 @@ class YoloDetectorNode(LifecycleNode):
     # INFERENCE LOOP (GPU)
     # -----------------------------
     def _inference_loop(self):
+        """
+        Role:
+        - Perform 2D object detection from compressed RGB images
+        - Output bounding boxes without any spatial or temporal reasoning
+
+        Notes:
+        - This node is strictly responsible for semantic detection
+        - No filtering, tracking, or state estimation is performed here
+        - All downstream reasoning is handled by projection, estimation, and tracking layers
+        """
+
         while self._running:
             if not rclpy.ok():
                 return
@@ -159,33 +163,42 @@ class YoloDetectorNode(LifecycleNode):
             except queue.Empty:
                 continue
 
+            # -----------------------------
+            # FPS measurement
+            # -----------------------------
+            now = time.time()
+            dt = now - self._last_inference_time
+            self._last_inference_time = now
+
+            if dt > 0:
+                fps = 1.0 / dt
+                self.get_logger().debug(f"Inference FPS: {fps:.2f}")
+
+
+            # -----------------------------
+            # YOLO inference
+            # -----------------------------
             results = self._model(image, verbose=False)[0]
 
             msg = Detection2DArray()
             msg.header = header
 
             for box in results.boxes:
+       
+                class_id = int(box.cls[0])
+                class_name = self._model.names[class_id]
                 
                 confidence = box.conf[0]
-                if confidence < 0.3:
+                if confidence < 0.5:
                     continue
-                
-                det = Detection2D()
 
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
 
+                det = Detection2D()
                 det.bbox.center.position.x = float((x1 + x2) / 2)
                 det.bbox.center.position.y = float((y1 + y2) / 2)
                 det.bbox.size_x = float(x2 - x1)
                 det.bbox.size_y = float(y2 - y1)
-
-       
-                class_id = int(box.cls[0])
-                class_name = self._model.names[class_id]
-
-                valid_class = ["chair"]
-                if class_name not in valid_class:
-                    continue
 
                 hyp = ObjectHypothesis()
                 hyp.class_id = class_name

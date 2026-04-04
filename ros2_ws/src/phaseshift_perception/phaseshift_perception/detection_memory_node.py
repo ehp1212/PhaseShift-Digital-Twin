@@ -148,7 +148,10 @@ class DetectionMemoryNode(LifecycleNode):
                 track['misses'] = track.get('misses', 0) + 1
 
     def _update_track(self, track, obj, now):
-
+        """
+        Update track 
+        Calculate velocity based on timestamp
+        """
         prev = track['obj'].pose.position
         curr = obj.pose.position
 

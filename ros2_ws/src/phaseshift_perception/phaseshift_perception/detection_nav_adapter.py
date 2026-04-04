@@ -11,12 +11,10 @@ from std_msgs.msg import Header
 from phaseshift_interfaces.msg import TrackedObjectArray
 class DetectionNavAdapter(Node):
 
+    MINIMUM_SPEED_THREDHOLD = 0.05
+
     def __init__(self):
         super().__init__("detection_nav_adapter")
-
-        # ---------------------------
-        # Subscriber
-        # ---------------------------
 
         qos_sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -31,9 +29,6 @@ class DetectionNavAdapter(Node):
             qos_sensor
         )
 
-        # ---------------------------
-        # Publisher
-        # ---------------------------
         self._pub = self.create_publisher(
             PointCloud2,
             "/perception/obstacles",
@@ -51,7 +46,7 @@ class DetectionNavAdapter(Node):
         self.get_logger().info("Detection Nav Adapter started...")
 
     # --------------------------------------------------
-    # Callback (store only)
+    # Callback
     # --------------------------------------------------
 
     def _callback(self, msg: TrackedObjectArray):
@@ -79,29 +74,27 @@ class DetectionNavAdapter(Node):
             # Dynamic radius
             # ---------------------------
             radius = self._compute_dynamic_radius(obj)
-            if obj.is_dynamic:
-                radius *= 1.5
-            else:
-                radius *= 1.0
-            
+
+            speed = np.sqrt(obj.velocity.x**2 + obj.velocity.y**2)
+            radius += np.clip(speed * 0.3, 0.0, 0.5)
+
+            # radius scaling
+            risk = self._compute_risk(obj)
+            radius *= (1.0 + risk)
             radius = max(radius, 0.2)
 
             # ---------------------------
             # Circle sampling
             # ---------------------------
-            circle_pts = self._sample_circle(cx, cy, radius)
+            shape_pts = self._sample_motion_aware(obj, radius)
+            points.extend(shape_pts)
 
-            points.extend(circle_pts)
-
-        # ---------------------------
-        # PointCloud2
-        # ---------------------------
+        # pointCloud2
         header = Header()
         header.stamp = msg.header.stamp
         header.frame_id = "map"
 
         pc_msg = point_cloud2.create_cloud_xyz32(header, points)
-
         self._pub.publish(pc_msg)
 
     # --------------------------------------------------
@@ -155,7 +148,70 @@ class DetectionNavAdapter(Node):
                 points.append([x, y, 0.0])
 
         return points
+    
+    def _sample_motion_aware(self, obj, radius):
+        """
+        calculate predicted paths
+        apply the points to costmap
+        """
+        cx = obj.pose.position.x
+        cy = obj.pose.position.y
 
+        vx = obj.velocity.x
+        vy = obj.velocity.y
+
+        speed = np.sqrt(vx * vx + vy * vy)
+
+        # static or very slow object
+        if speed < self.MINIMUM_SPEED_THREDHOLD:
+            return self._sample_circle(cx, cy, radius)
+        
+        points = []
+        
+        # direction
+        dx = vx / speed
+        dy = vy / speed
+
+        # lookahead distance
+        lookahead = np.clip(speed * 1.0, 0.3, 1.5)
+
+        # future position
+        num_steps = 4
+
+        for t in np.linspace(0.0, lookahead, num_steps):
+
+            px = cx + dx * t
+            py = cy + dy * t
+
+            pts = self._sample_circle(px, py, radius)
+            points.extend(pts)
+        
+        return points
+    
+    def _compute_risk(self, obj):
+
+        px = obj.pose.position.x
+        py = obj.pose.position.y
+
+        vx = obj.velocity.x
+        vy = obj.velocity.y
+
+        # distance
+        dist = np.sqrt(px * px + py * py)
+
+        # speed
+        speed = np.sqrt(vx * vx + vy * vy)
+
+        # confidence
+        confidence = obj.motion_confidence
+
+        # risk
+        risk = (speed * confidence) / (dist + 0.1)
+
+        # clamp
+        risk = np.clip(risk, 0.0, 2.0)
+
+        return risk        
 
 def main(args=None):
     rclpy.init(args=args)
