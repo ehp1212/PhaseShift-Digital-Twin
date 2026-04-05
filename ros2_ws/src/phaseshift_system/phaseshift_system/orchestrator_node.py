@@ -1,35 +1,56 @@
 import os
 import time
+from enum import Enum
+
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rcl_interfaces.srv import SetParameters
-
-from enum import Enum
 from ament_index_python.packages import get_package_share_directory
 
-from lifecycle_msgs.srv import ChangeState, GetState
-from lifecycle_msgs.msg import Transition, TransitionEvent
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped
+from lifecycle_msgs.srv import ChangeState
+from lifecycle_msgs.msg import Transition
+from geometry_msgs.msg import PoseWithCovarianceStamped
 
 from phaseshift_interfaces.msg import NavState, NavigationFeedback
-from phaseshift_interfaces.srv import SaveMap, SaveVoxelMap, SetGoal, NavigateToGoal, InternalRequestNavigate, InternalCancelNavigate, InternalRequestRecovery
+from phaseshift_interfaces.srv import (
+    SaveMap,
+    SaveVoxelMap,
+    SetGoal,
+    NavigateToGoal,
+    InternalRequestNavigate,
+    InternalCancelNavigate,
+    InternalRequestRecovery,
+)
 
 from phaseshift_control.slam_controller import SlamController
 from phaseshift_control.nav2_controller import Nav2Controller
 from phaseshift_control.odometry_controller import OdometryController
 from phaseshift_control.perception_controller import PerceptionController
 
+from .pipeline.core import Pipeline, TimeoutStep, ParallelStep
+from .pipeline.nav_steps import (
+    LocalizationReadyStep,
+    LoadMapStep,
+    InitialPoseStep,
+    Nav2ReadyStep,
+    PerceptionStep,
+    BehaviourStep,
+    VoxelLayerStep,
+    WaitForMapTopicStep
+)
+
 from .system_state_publisher import SystemStatePublisher
 from .map_manager import MapManager
+
 
 class SystemPhase(Enum):
     BOOT = 0
     SYSTEM_INITIALIZING = 1
-  
+
     SLAM_PREPARING = 2
     SLAM_ACTIVE = 3
-    MAP_SAVING = 4      
+    MAP_SAVING = 4
     MAP_SAVED = 5
 
     NAV_PREPARING = 6
@@ -38,10 +59,11 @@ class SystemPhase(Enum):
 
     ERROR = 9
 
+
 class OrchestratorNode(Node):
 
     def __init__(self):
-        super().__init__('orchestrator')
+        super().__init__("orchestrator")
         self._log_phase("ORCHESTRA NODE", "Started...")
 
         # ------------------------------
@@ -53,10 +75,15 @@ class OrchestratorNode(Node):
         self.use_example_map = self.project_name == "demo"
         self.example_map_name = "demo"
 
-        self._log_phase("ORCHESTRA NODE - PARAM", f"use_example_map={self.use_example_map} / example_map_name={self.example_map_name} / project_name={self.project_name}")
+        self._log_phase(
+            "ORCHESTRA NODE - PARAM",
+            f"use_example_map={self.use_example_map} / "
+            f"example_map_name={self.example_map_name} / "
+            f"project_name={self.project_name}"
+        )
 
         # ------------------------------
-        # CONTROLLER 
+        # CONTROLLERS
         # ------------------------------
         self._system_publisher = SystemStatePublisher(self)
         self.slam_controller = SlamController(self)
@@ -65,11 +92,11 @@ class OrchestratorNode(Node):
         self.perception_controller = PerceptionController(self)
 
         # ------------------------------
-        # CONTROLLER SERVICES
+        # SYSTEM SERVICES
         # ------------------------------
         self.save_map_srv = self.create_service(
             SaveMap,
-            '/system/save_map',
+            "/system/save_map",
             self.handle_save_map
         )
 
@@ -80,13 +107,13 @@ class OrchestratorNode(Node):
 
         self.set_goal_srv = self.create_service(
             SetGoal,
-            '/system/set_goal',
+            "/system/set_goal",
             self.handle_set_goal
         )
 
         self.navigate_srv = self.create_service(
             NavigateToGoal,
-            '/system/navigate',
+            "/system/navigate",
             self.handle_navigate
         )
 
@@ -95,22 +122,22 @@ class OrchestratorNode(Node):
         # ------------------------------
         self.voxel_costmap_client = self.create_client(
             ChangeState,
-            '/voxel_costmap_node/change_state'
+            "/voxel_costmap_node/change_state"
         )
 
         self._voxel_costmap_set_param_client = self.create_client(
             SetParameters,
-            '/voxel_costmap_node/set_parameters'
+            "/voxel_costmap_node/set_parameters"
         )
 
         self.voxel_change_detection_client = self.create_client(
             ChangeState,
-            'voxel_change_detection_node/change_state'
+            "/voxel_change_detection_node/change_state"
         )
 
         self._voxel_change_detection_set_param_client = self.create_client(
             SetParameters,
-            '/voxel_change_detection_node/set_parameters'
+            "/voxel_change_detection_node/set_parameters"
         )
 
         # ------------------------------
@@ -123,7 +150,7 @@ class OrchestratorNode(Node):
 
         self._nav_state_pub = self.create_publisher(
             NavState,
-            '/system/internal/nav_state',
+            "/system/internal/nav_state",
             10
         )
 
@@ -136,62 +163,110 @@ class OrchestratorNode(Node):
 
         self._behaviour_request_srv = self.create_service(
             InternalRequestNavigate,
-            '/system/internal/request_navigate',
+            "/system/internal/request_navigate",
             self._on_behaviour_navigate_request
         )
 
         self._behaviour_recover_srv = self.create_service(
             InternalRequestRecovery,
-            '/system/internal/request_recovery',
+            "/system/internal/request_recovery",
             self._on_behaviour_recovery_request
         )
 
         self._behaviour_cancel_srv = self.create_service(
             InternalCancelNavigate,
-            '/system/internal/cancel_navigate',
+            "/system/internal/cancel_navigate",
             self._on_behaviour_cancel_request
         )
-    
+
         self._latest_nav_feedback = None
-        self._distance_history = []  
+        self._distance_history = []
 
         # ------------------------------
         # MAP MANAGER
         # ------------------------------
         package_dir = get_package_share_directory("phaseshift_bringup")
         package_map_dir = os.path.join(package_dir, "maps")
-        
+
         self.map_manager = MapManager(self, package_map_dir)
         self._map_yaml = None
 
         self._slam_saved = False
         self._voxel_saved = False
 
-        self.initial_pose_sent = False 
+        self.initial_pose_sent = False
         self._behaviour_activated = False
 
-        # initial pose publisher
+        # ------------------------------
+        # VOXEL BASE LAYER
+        # ------------------------------
+        self._voxel_costmap_activated = False
+        self._voxel_change_detection_activated = False
+
         self.initial_pose_pub = self.create_publisher(
             PoseWithCovarianceStamped,
             "/initialpose",
             10
         )
 
-        # Internal state
         self.phase = SystemPhase.BOOT
-
-        # Publish initial state
         self.publish_state(self.phase)
 
-        # Condition loop (Hybrid: condition watcher only)
-        self.create_timer(0.5, self._update)
-        
-    # ==================================================
-    # Phase Management (Behaviour)
-    # ==================================================
-    
-    def set_phase(self, new_phase: SystemPhase):
+        # ------------------------------
+        # PIPELINES
+        # ------------------------------
+        self._nav_pipeline = Pipeline([
 
+            LocalizationReadyStep(self, self.nav2_controller),
+
+            TimeoutStep(
+                self,
+                LoadMapStep(self, self.nav2_controller, self.map_manager, self, SystemPhase),
+                timeout_sec=5.0,
+                on_timeout=lambda: self.set_phase(SystemPhase.ERROR)
+            ),
+
+            TimeoutStep(
+                self,
+                WaitForMapTopicStep(self),
+                timeout_sec=5.0,
+                on_timeout=lambda: self.set_phase(SystemPhase.ERROR)
+            ),
+
+            InitialPoseStep(self, self),
+
+            TimeoutStep(
+                self,
+                Nav2ReadyStep(self, self.nav2_controller),
+                timeout_sec=10.0,
+                on_timeout=lambda: self.set_phase(SystemPhase.ERROR)
+            ),
+
+            PerceptionStep(self, self.perception_controller),
+
+            ParallelStep(self, [
+                TimeoutStep(
+                    self,
+                    BehaviourStep(self, self),
+                    timeout_sec=5.0,
+                    on_timeout=lambda: self.set_phase(SystemPhase.ERROR)
+                ),
+                TimeoutStep(
+                    self,
+                    VoxelLayerStep(self, self),
+                    timeout_sec=5.0,
+                    on_timeout=lambda: self.set_phase(SystemPhase.ERROR)
+                ),
+            ]),
+        ])
+
+        self.create_timer(0.5, self._update)
+
+    # ==================================================
+    # Phase Management
+    # ==================================================
+
+    def set_phase(self, new_phase: SystemPhase):
         if self.phase == new_phase:
             return
 
@@ -205,49 +280,43 @@ class OrchestratorNode(Node):
         self.publish_state(new_phase)
 
     def on_enter(self, phase: SystemPhase):
-
         if phase == SystemPhase.BOOT:
-            self.get_logger().info("[Boot]System booting...")
+            self.get_logger().info("[Boot] System booting...")
             self._behaviour_activated = False
 
         elif phase == SystemPhase.SYSTEM_INITIALIZING:
-            self.get_logger().info("[Init]Checking map availability...")
+            self.get_logger().info("[Init] Checking map availability...")
 
             if not self.odom_controller.is_active():
                 self.odom_controller.activate()
 
         elif phase == SystemPhase.SLAM_PREPARING:
-            self.get_logger().info("[SLAM]Waiting for SLAM readiness...")
+            self.get_logger().info("[SLAM] Waiting for SLAM readiness...")
             if not self.slam_controller.is_running():
                 self.slam_controller.start_slam()
-            
+
             self._map_yaml = None
 
         elif phase == SystemPhase.SLAM_ACTIVE:
-            self.get_logger().info("[SLAM]SLAM is ACTIVE")
+            self.get_logger().info("[SLAM] SLAM is ACTIVE")
 
         elif phase == SystemPhase.MAP_SAVING:
-            self.get_logger().info("[SLAM]Saving map...")
+            self.get_logger().info("[SLAM] Saving map...")
 
         elif phase == SystemPhase.MAP_SAVED:
-            self.get_logger().info("[SLAM]Map saved")
+            self.get_logger().info("[SLAM] Map saved")
 
         elif phase == SystemPhase.NAV_PREPARING:
-            self.get_logger().info("[NAV]Waiting for NAV readiness...")
+            self.get_logger().info("[NAV] Waiting for NAV readiness...")
 
-            # Activate behaviour node
-            self._activate_behaviour_node()
-
-            # TODO: Need to set this as must-met condition for nav2 phase
-            # Activate voxel costmap node
-            voxel_map_path = self.map_manager.resolve_3d_map(self.project_name)
-            self._activate_voxel_costmap_node(voxel_map_path)
-            # self._activate_change_detection_node(voxel_map_path)
+            self._nav_pipeline.reset()
+            self.initial_pose_sent = False
+            self._behaviour_activated = False
+            self._voxel_costmap_activated = False
+            self._voxel_change_detection_activated = False
 
         elif phase == SystemPhase.NAV_READY:
-            voxel_map_path = self.map_manager.resolve_3d_map(self.project_name)
-            self._activate_change_detection_node(voxel_map_path)
-            pass
+            self.get_logger().info("[NAV] READY")
 
         elif phase == SystemPhase.ERROR:
             self.get_logger().error("System entered ERROR state")
@@ -266,17 +335,10 @@ class OrchestratorNode(Node):
     def _check_nav_feedback(self):
         if self._latest_nav_feedback is None:
             return
-        
-        feedback = self._latest_nav_feedback
 
-        # -------------------------
-        # record distance history 
-        # -------------------------
+        feedback = self._latest_nav_feedback
         self._record_distance(feedback.distance_remaining)
 
-        # -------------------------
-        # NavState 
-        # -------------------------
         nav_state = NavState()
         nav_state.stamp = self.get_clock().now().to_msg()
 
@@ -284,158 +346,85 @@ class OrchestratorNode(Node):
         nav_state.current_goal = current_goal
         nav_state.has_goal = current_goal is not None
 
-        # -------------------------
-        # check struck
-        # -------------------------
         nav_state.is_stuck = self._is_stuck(feedback)
 
         nav_state.distance_to_goal = feedback.distance_remaining
         nav_state.remaining_path_length = feedback.distance_remaining
-
         nav_state.navigation_time = feedback.navigation_time
         nav_state.estimated_time_remaining = feedback.estimated_time_remaining
-
         nav_state.current_pose = feedback.current_pose
 
-        # -------------------------
-        # check current status
-        # -------------------------
         if not nav_state.has_goal:
             nav_state.status = NavState.IDLE
-
         elif self.nav2_controller.is_succeeded():
             nav_state.status = NavState.SUCCEEDED
-
         elif self.nav2_controller.is_failed():
             nav_state.status = NavState.FAILED
-
         elif nav_state.is_stuck:
             nav_state.status = NavState.BLOCKED
-
         elif feedback.recovery_count > 0:
             nav_state.status = NavState.RECOVERING
-
         else:
             nav_state.status = NavState.MOVING
 
-        # -------------------------
-        # debug
-        # -------------------------
         nav_state.detail = f"recovery={feedback.recovery_count}"
 
-        # -------------------------
-        # publish
-        # -------------------------
         self._nav_state_pub.publish(nav_state)
         self._latest_nav_feedback = None
 
     def _check_condition_loop(self):
-        # BOOT → INIT
         if self.phase == SystemPhase.BOOT:
             self.set_phase(SystemPhase.SYSTEM_INITIALIZING)
             return
 
-        # INIT → CONNECTING or NAV_READY
         if self.phase == SystemPhase.SYSTEM_INITIALIZING:
-
             if not self.odom_controller.is_active():
                 return
-            
+
             has_map = self.map_manager.resolve_2d_map(self.project_name, False) is not None
             if self.use_example_map or has_map:
                 self.set_phase(SystemPhase.NAV_PREPARING)
             else:
                 self.set_phase(SystemPhase.SLAM_PREPARING)
-                return
+            return
 
-        # ==================================================
-        # SLAM
-        # ==================================================
-        # CONNECTING → SLAM_ACTIVE
         if self.phase == SystemPhase.SLAM_PREPARING:
             if self.slam_controller.is_ready():
                 self.set_phase(SystemPhase.SLAM_ACTIVE)
             return
-        
-        # MAP_SAVED -> SYSTEM_INITIALIZING
+
         if self.phase == SystemPhase.MAP_SAVED:
             self.slam_controller.stop_slam()
             self.set_phase(SystemPhase.SYSTEM_INITIALIZING)
             return
-        
-        # ==================================================
-        # NAV2
-        # ==================================================
 
         if self.phase == SystemPhase.NAV_PREPARING:
-
-            # Nav2 localization
-            if not self.nav2_controller.is_localization_ready():
-                return
-
-            # Load map
-            if not self.nav2_controller.is_map_loaded():
-
-                if self._map_yaml is None:
-
-                    if self.use_example_map:
-                        self._map_yaml = self.map_manager.resolve_2d_map(self.example_map_name, True)
-                    else:
-                        self._map_yaml = self.map_manager.resolve_2d_map(self.project_name)
-
-                    if self._map_yaml is None:
-                        self.get_logger().error("No runtime map found")
-                        self.set_phase(SystemPhase.ERROR)
-                        return
-
-                self.nav2_controller.load_map(self._map_yaml)
-                return
-         
-            # Initial pose
-            if not self.initial_pose_sent:
-                self.publish_initial_pose()
-                self.initial_pose_sent = True
-                return
-
-            # Nav2 navigation
-            if not self.nav2_controller.is_navigation_ready():
-                return
-            
-            # Perception Layer
-            self.perception_controller.activate()
-            if not self.perception_controller.is_active():
-                return
-
-            # Behaviour Node
-            if not self._behaviour_activated:
-                return
-
-            # nav2 configure and activate
-            if self.nav2_controller.is_ready() and self.perception_controller.is_active():
-                self.get_logger().info(f"NAV Phase Ready to use")            
+            done = self._nav_pipeline.run()
+            if done:
+                self.get_logger().info("[NAV] Phase Ready to use")
                 self.set_phase(SystemPhase.NAV_READY)
-                return
+            return
 
         if self.phase == SystemPhase.NAV_EXECUTING:
-
             if not self.nav2_controller.tick_navigation():
                 if self.nav2_controller.is_error():
                     self.set_phase(SystemPhase.ERROR)
                 return
-            
+
             self.set_phase(SystemPhase.NAV_READY)
 
     # ==================================================
     # System State Publishing
     # ==================================================
+
     def publish_state(self, phase: SystemPhase):
         self._system_publisher.publish(phase.value)
 
     # ==================================================
     # System Service
     # ==================================================
-    def handle_save_map(self, request, response):
 
+    def handle_save_map(self, request, response):
         if self.phase != SystemPhase.SLAM_ACTIVE:
             response.success = False
             response.message = "SLAM not active"
@@ -449,14 +438,15 @@ class OrchestratorNode(Node):
 
         self.set_phase(SystemPhase.MAP_SAVING)
 
-        # 2D map
+        self._slam_saved = False
+        self._voxel_saved = False
+
         base_path = self.map_manager.generate_2d_map_path(map_name)
         self.slam_controller.save_map_async(
             base_path,
             on_done=self._on_slam_saved
         )
 
-        # 3D map
         voxel_path = self.map_manager.generate_3d_map_path(map_name)
         self._save_voxel_map_async(voxel_path)
 
@@ -467,10 +457,9 @@ class OrchestratorNode(Node):
     def handle_set_goal(self, request, response):
         if self.phase != SystemPhase.NAV_READY:
             response.success = False
-            response.message = "Only available in NAV2_READY phase"
+            response.message = "Only available in NAV_READY phase"
             return response
-        
-        # NAV2 controller
+
         self.nav2_controller.set_goal(
             x=request.x,
             y=request.y,
@@ -483,13 +472,14 @@ class OrchestratorNode(Node):
         response.success = True
         response.message = "Goal stored"
         return response
-    
 
     def handle_navigate(self, request, response):
-        pass
+        response.success = False
+        response.message = "Not implemented"
+        return response
 
     # ======================================================
-    # BEHAVIOAUR NODE
+    # Behaviour Node
     # ======================================================
 
     def _activate_behaviour_node(self):
@@ -497,12 +487,11 @@ class OrchestratorNode(Node):
         req.transition.id = Transition.TRANSITION_CONFIGURE
 
         self.get_logger().info("Configure Robot Behaviour")
-        
+
         future = self._behanvior_change_state_client.call_async(req)
         future.add_done_callback(self._on_behaviour_configured)
 
     def _on_behaviour_configured(self, future):
-
         try:
             result = future.result()
         except Exception as e:
@@ -510,7 +499,7 @@ class OrchestratorNode(Node):
             return
 
         if not result.success:
-            self.get_logger().error(f"Robot Behaviour configure failed: {e}")
+            self.get_logger().error("Robot Behaviour configure failed")
             return
 
         self.get_logger().info("[Robot Behaviour] CONFIGURED, activating...")
@@ -519,10 +508,9 @@ class OrchestratorNode(Node):
         req.transition.id = Transition.TRANSITION_ACTIVATE
 
         future = self._behanvior_change_state_client.call_async(req)
-        future.add_done_callback(self._on_behaviour_activated)    
+        future.add_done_callback(self._on_behaviour_activated)
 
     def _on_behaviour_activated(self, future):
-
         try:
             result = future.result()
         except Exception as e:
@@ -530,7 +518,7 @@ class OrchestratorNode(Node):
             return
 
         if not result.success:
-            self.get_logger().error(f"Robot Behaviour activation failed")
+            self.get_logger().error("Robot Behaviour activation failed")
             return
 
         self._behaviour_activated = True
@@ -539,13 +527,11 @@ class OrchestratorNode(Node):
     def _feedback_callback(self, msg: NavigationFeedback):
         self._latest_nav_feedback = msg
 
-
     def _on_behaviour_navigate_request(self, request, response):
-
         self.nav2_controller.set_goal(
             x=request.goal.pose.position.x,
             y=request.goal.pose.position.y,
-            yaw=0
+            yaw=0.0
         )
 
         self.set_phase(SystemPhase.NAV_EXECUTING)
@@ -553,17 +539,15 @@ class OrchestratorNode(Node):
         response.accepted = True
         response.message = "Goal stored"
         return response
-    
-    def _on_behaviour_recovery_request(self, request, response):
 
-        # TODO: Currently cancel to retry. Add more behaviour
+    def _on_behaviour_recovery_request(self, request, response):
         try:
             self.get_logger().warn("[ORCHESTRATOR] Recovery requested")
 
             current_goal = self.nav2_controller.get_active_goal()
 
             if current_goal is None:
-                self.get_logger().error("[RECOVERY] No active goal → cannot recover")
+                self.get_logger().error("[RECOVERY] No active goal -> cannot recover")
                 response.accepted = False
                 return response
 
@@ -594,7 +578,6 @@ class OrchestratorNode(Node):
             return response
 
     def _on_behaviour_cancel_request(self, request, response):
-
         self.get_logger().warn("[ORCHESTRATOR] Cancel navigation requested")
 
         success = self.nav2_controller.cancel_navigation()
@@ -609,7 +592,7 @@ class OrchestratorNode(Node):
         return response
 
     # ======================================================
-    # PERCEPTION GEOMETRY
+    # Perception Geometry
     # ======================================================
 
     def _activate_voxel_costmap_node(self, voxel_map_path: str):
@@ -618,7 +601,7 @@ class OrchestratorNode(Node):
                 self.get_logger().warn("Waiting for voxel_costmap_node")
 
             params = Parameter(
-                'voxel_map_path',
+                "voxel_map_path",
                 Parameter.Type.STRING,
                 voxel_map_path
             )
@@ -629,10 +612,9 @@ class OrchestratorNode(Node):
             future.add_done_callback(self._on_set_voxel_map)
 
         except Exception as e:
-            self.get_logger().error(f"Failed to activate perception geometry node ... {e}")
+            self.get_logger().error(f"Failed to activate perception geometry node: {e}")
 
     def _on_set_voxel_map(self, future):
-
         try:
             result = future.result()
         except Exception as e:
@@ -641,41 +623,49 @@ class OrchestratorNode(Node):
 
         for r in result.results:
             if not r.successful:
-                self.get_logger().error("Parameter set failed")
+                self.get_logger().error("Voxel Costmap parameter set failed")
                 return
 
-        # Start 
         req = ChangeState.Request()
         req.transition.id = Transition.TRANSITION_CONFIGURE
 
         self.get_logger().info("Configuring Voxel Costmap Node...")
-        
-        future = self.voxel_costmap_client.call_async(req)
-        future.add_done_callback(self._on_perception_geometry_configured)
 
-    def _on_perception_geometry_configured(self, future):
+        future = self.voxel_costmap_client.call_async(req)
+        future.add_done_callback(self._on_voxel_costmap_node_configured)
+
+    def _on_voxel_costmap_node_configured(self, future):
         try:
             result = future.result()
         except Exception as e:
-            self.get_logger().error(f"Voxel Costmap configure Param failed: {e}")
+            self.get_logger().error(f"Voxel Costmap configure failed: {e}")
+            return
+
+        if not result.success:
+            self.get_logger().error("Voxel Costmap configure failed")
             return
 
         req = ChangeState.Request()
         req.transition.id = Transition.TRANSITION_ACTIVATE
 
         self.get_logger().info("Activating Voxel Costmap Node...")
-        
-        future = self.voxel_costmap_client.call_async(req)
-        future.add_done_callback(self._on_perception_geometry_activated)
 
-    def _on_perception_geometry_activated(self, future):
+        future = self.voxel_costmap_client.call_async(req)
+        future.add_done_callback(self._on_voxel_costmap_node_activated)
+
+    def _on_voxel_costmap_node_activated(self, future):
         try:
             result = future.result()
         except Exception as e:
-            self.get_logger().error(f"Voxel Costmap configure Param failed: {e}")
+            self.get_logger().error(f"Voxel Costmap activate failed: {e}")
             return
-        
-    # ------------------------------------------------------
+
+        if not result.success:
+            self.get_logger().error("Voxel Costmap activate failed")
+            return
+
+        self._voxel_costmap_activated = True
+        self.get_logger().info("Voxel Costmap Node Activated")
 
     def _activate_change_detection_node(self, voxel_map_path: str):
         try:
@@ -683,7 +673,7 @@ class OrchestratorNode(Node):
                 self.get_logger().warn("Waiting for voxel_change_detection_node")
 
             params = Parameter(
-                'voxel_map_path',
+                "voxel_map_path",
                 Parameter.Type.STRING,
                 voxel_map_path
             )
@@ -694,10 +684,9 @@ class OrchestratorNode(Node):
             future.add_done_callback(self._on_set_voxel_map_change_detection)
 
         except Exception as e:
-            self.get_logger().error(f"Failed to activate perception geometry node ... {e}")
+            self.get_logger().error(f"Failed to activate perception geometry node: {e}")
 
     def _on_set_voxel_map_change_detection(self, future):
-
         try:
             result = future.result()
         except Exception as e:
@@ -706,31 +695,33 @@ class OrchestratorNode(Node):
 
         for r in result.results:
             if not r.successful:
-                self.get_logger().error("Parameter set failed")
+                self.get_logger().error("Voxel Change Detection parameter set failed")
                 return
 
-        # Start 
         req = ChangeState.Request()
         req.transition.id = Transition.TRANSITION_CONFIGURE
 
         self.get_logger().info("Configuring Change Detection Node...")
-        
+
         future = self.voxel_change_detection_client.call_async(req)
         future.add_done_callback(self._on_change_detection_configured)
 
     def _on_change_detection_configured(self, future):
-
         try:
             result = future.result()
         except Exception as e:
-            self.get_logger().error(f"Voxel Change Detection Param failed: {e}")
+            self.get_logger().error(f"Voxel Change Detection configure failed: {e}")
+            return
+
+        if not result.success:
+            self.get_logger().error("Voxel Change Detection configure failed")
             return
 
         req = ChangeState.Request()
         req.transition.id = Transition.TRANSITION_ACTIVATE
 
         self.get_logger().info("Activating Change Detection Node...")
-        
+
         future = self.voxel_change_detection_client.call_async(req)
         future.add_done_callback(self._on_change_detection_activated)
 
@@ -738,18 +729,24 @@ class OrchestratorNode(Node):
         try:
             result = future.result()
         except Exception as e:
-            self.get_logger().error(f"Voxel Change Detection Param failed: {e}")
+            self.get_logger().error(f"Voxel Change Detection activate failed: {e}")
             return
+
+        if not result.success:
+            self.get_logger().error("Voxel Change Detection activate failed")
+            return
+
+        self._voxel_change_detection_activated = True
+        self.get_logger().info("Change Detection Node Activated")
 
     # ======================================================
     # Utility
     # ======================================================
 
     def _log_phase(self, phase: str, msg: str):
-        self.get_logger().info(f"\033[92m[{phase}]\033[0m - {msg}")  # Green
+        self.get_logger().info(f"\033[92m[{phase}]\033[0m - {msg}")
 
     def publish_initial_pose(self):
-
         msg = PoseWithCovarianceStamped()
 
         msg.header.frame_id = "map"
@@ -760,13 +757,10 @@ class OrchestratorNode(Node):
         msg.pose.pose.orientation.w = 1.0
 
         self.initial_pose_pub.publish(msg)
-
         self.get_logger().info("[Nav2] Initial pose published")
 
     def _record_distance(self, distance):
-
         now = self.get_clock().now().nanoseconds / 1e9
-
         self._distance_history.append((now, distance))
 
         window_sec = 5.0
@@ -781,7 +775,7 @@ class OrchestratorNode(Node):
 
         if len(self._distance_history) < 2:
             return False
-        
+
         now = self.get_clock().now().nanoseconds / 1e9
         first_time = self._distance_history[0][0]
 
@@ -789,22 +783,16 @@ class OrchestratorNode(Node):
             return False
 
         distances = [d for (_, d) in self._distance_history]
-
         progress = max(distances) - min(distances)
 
-        # check progress
         no_progress = progress < 0.1
-
-        # TODO check recovering
-        recovering = feedback.recovery_count > 0
-        
         return no_progress
-    
-    # ======================================================
-    # Map 
-    # ======================================================
-    def _save_voxel_map_async(self, path: str):
 
+    # ======================================================
+    # Map
+    # ======================================================
+
+    def _save_voxel_map_async(self, path: str):
         if not self._voxel_save_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().error("Voxel save service not available")
             return
@@ -813,11 +801,9 @@ class OrchestratorNode(Node):
         request.path = path
 
         future = self._voxel_save_client.call_async(request)
-
         future.add_done_callback(self._on_voxel_saved)
 
     def _on_voxel_saved(self, future):
-
         try:
             result = future.result()
 
@@ -835,39 +821,30 @@ class OrchestratorNode(Node):
             self.set_phase(SystemPhase.ERROR)
 
     def _on_slam_saved(self, success: bool):
-
         if not success:
             self.get_logger().error("2D map save failed")
             self.set_phase(SystemPhase.ERROR)
             return
 
         self.get_logger().info("2D map saved")
-
         self._slam_saved = True
         self._check_all_maps_saved()
 
     def _check_all_maps_saved(self):
-
         if self._slam_saved and self._voxel_saved:
             self.get_logger().info("All maps saved")
+            self.set_phase(SystemPhase.MAP_SAVED)
 
-            self.set_phase(SystemPhase.MAP_SAVED)        
-
-
-# ======================================================
-# Main Entry
-# ======================================================
 
 def main(args=None):
     rclpy.init(args=args)
     node = OrchestratorNode()
 
-    executor = rclpy.executors.MultiThreadedExecutor() 
+    executor = rclpy.executors.MultiThreadedExecutor()
     executor.add_node(node)
 
     try:
-        rclpy.spin(node)
-    
+        executor.spin()
     except KeyboardInterrupt:
         node.get_logger().info("Keyboard Interrupt (Ctrl+C)")
     except Exception as e:
