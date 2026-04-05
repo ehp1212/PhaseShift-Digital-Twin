@@ -1,10 +1,13 @@
-
 from enum import Enum, auto
+from typing import Dict
 
 from rclpy.node import Node
-
 from lifecycle_msgs.msg import Transition
-from lifecycle_msgs.srv import ChangeState, GetState
+from lifecycle_msgs.srv import ChangeState
+
+# ========================================
+# ENUMS
+# ========================================
 
 class PerceptionControllerState(Enum):
     IDLE = auto()
@@ -16,230 +19,138 @@ class PerceptionControllerState(Enum):
     CLEANING_UP = auto()
     ERROR = auto()
 
+class ManagedNode(Enum):
+    YOLO = "/yolo_detector_node"
+    YOLO_TRACKER = "/yolo_tracker_node"
+    PROJECTION = "/projection_node"
+    MEMORY = "/detection_memory_node"
+    VOXEL_EST = "/voxel_state_estimator_node"
+
+class LifecycleStage(Enum):
+    CONFIGURED = auto()
+    ACTIVATED = auto()
+    DEACTIVATED = auto()
+    CLEANED = auto()
+
+# ========================================
+# CONTROLLER
+# ========================================
+
 class PerceptionController:
-    
-    CONFIGURE_ID = Transition.TRANSITION_CONFIGURE      # 1
-    ACTIVATE_ID = Transition.TRANSITION_ACTIVATE        # 3
-    DEACTIVATE_ID = Transition.TRANSITION_DEACTIVATE    # 4
-    CLEANUP_ID = Transition.TRANSITION_CLEANUP          # 5
+
+    CONFIGURE_ID = Transition.TRANSITION_CONFIGURE
+    ACTIVATE_ID = Transition.TRANSITION_ACTIVATE
+    DEACTIVATE_ID = Transition.TRANSITION_DEACTIVATE
+    CLEANUP_ID = Transition.TRANSITION_CLEANUP
 
     def __init__(self, node: Node):
         self.node = node
 
-        self._yolo_name = '/yolo_detector_node'
-        self._yolo_tracker_name = '/yolo_tracker_node'
-        self._projection_name = '/projection_node'
-        self._memory_node_name = '/detection_memory_node'
-        self._voxel_state_est_node_name = '/voxel_state_estimator_node'
+        self._clients: Dict[ManagedNode, any] = {}
+        self._flags: Dict[ManagedNode, Dict[LifecycleStage, bool]] = {}
 
-        # YOLO node client
-        self._yolo_client = node.create_client(
-            ChangeState,
-            f'{self._yolo_name}/change_state'
-        )
+        for mnode in ManagedNode:
+            self._clients[mnode] = node.create_client(
+                ChangeState,
+                f"{mnode.value}/change_state"
+            )
 
-        self._yolo_tracker_client = node.create_client(
-            ChangeState,
-            f'{self._yolo_tracker_name}/change_state'
-        )
-
-        # Projection node client
-        self._projection_client = node.create_client(
-            ChangeState,
-            f'{self._projection_name}/change_state'
-        )
-
-        self._memory_node_client = node.create_client(
-            ChangeState,
-            f'{self._memory_node_name}/change_state'
-        )
-
-        self._voxel_state_est_node_client = node.create_client(
-            ChangeState,
-            f'{self._voxel_state_est_node_name}/change_state'
-        )
+            self._flags[mnode] = {
+                stage: False for stage in LifecycleStage
+            }
 
         self._state = PerceptionControllerState.IDLE
-
-        self._yolo_configured = False
-        self._yolo_tracker_configured =False
-        self._projection_configured = False
-        self._memory_node_configured = False
-        self._voxel_state_est_node_configured = False
-
-
-        self._yolo_deactivated = False
-        self._yolo_tracker_deactivated = False
-        self._projection_deactivated = False
-        self._memory_node_deactivated = False
-        self._voxel_state_est_node_deactivated = False
-
-        self._yolo_activated = False
-        self._yolo_tracker_activated = False
-        self._projection_activated = False
-        self._memory_node_activated = False
-        self._voxel_state_est_node_activated = False
-
-        self._yolo_cleaned = False
-        self._yolo_tracker_cleaned = False
-        self._projection_cleaned = False
-        self._memory_node_cleaned = False
-        self._voxel_state_est_node_cleaned = False
 
     # ========================================
     # PUBLIC API
     # ========================================
+
     @property
-    def state(self) -> PerceptionControllerState:
+    def state(self):
         return self._state
-    
-    def is_active(self) -> bool:
+
+    def is_active(self):
         return self._state == PerceptionControllerState.ACTIVE
-    
-    def is_idle(self) -> bool:
+
+    def is_idle(self):
         return self._state == PerceptionControllerState.IDLE
-    
+
     def activate(self) -> bool:
-        if self._state not in (PerceptionControllerState.IDLE, 
-                               PerceptionControllerState.INACTIVE, ):
-            
+
+        if self._state not in (
+            PerceptionControllerState.IDLE,
+            PerceptionControllerState.INACTIVE
+        ):
             self.node.get_logger().warn(
-                f'[PERCEPTION] Activate ignored. Current state: {self._state.name}')
+                f'[PERCEPTION] Activate ignored. Current state: {self._state.name}'
+            )
             return False
-        
+
         if not self._wait_for_service():
-            self._set_error('Lifecycle node service unavailable')
+            self._set_error("Lifecycle node service unavailable")
             return False
 
-        self.node.get_logger().info('[PERCEPTION] Activating perception subsystem...')        
+        self.node.get_logger().info("[PERCEPTION] Activating perception subsystem...")
+
         self._state = PerceptionControllerState.CONFIGURING
+        self._reset_flags([LifecycleStage.CONFIGURED, LifecycleStage.CLEANED])
 
-        self._yolo_configured = False
-        self._yolo_tracker_configured = False
-        self._projection_configured = False
-        self._memory_node_configured = False
-        self._voxel_state_est_node_configured = False
-
-        self._yolo_cleaned = False
-        self._yolo_tracker_cleaned = False
-        self._projection_cleaned = False
-        self._memory_node_cleaned = False
-        self._voxel_state_est_node_cleaned = False
-        
-        # Activate process    
-        self._call(
-            self._yolo_client,
+        self._call_all(
             self.CONFIGURE_ID,
-            self._on_yolo_configured
+            lambda node: self._make_callback(
+                node,
+                LifecycleStage.CONFIGURED,
+                self._try_activate
+            )
         )
 
-        self._call(
-            self._yolo_tracker_client,
-            self.CONFIGURE_ID,
-            self._on_yolo_tracker_configured
-        )
-        
-        self._call(
-            self._projection_client,
-            self.CONFIGURE_ID,
-            self._on_projection_configured
-        )
-
-        self._call(
-            self._memory_node_client,
-            self.CONFIGURE_ID,
-            self._on_memory_node_configured
-        )
-
-        self._call(
-            self._voxel_state_est_node_client,
-            self.CONFIGURE_ID,
-            self._voxel_est_node_configured
-        )
+        return True
 
     def deactivate(self) -> bool:
+
         if self._state != PerceptionControllerState.ACTIVE:
             self.node.get_logger().warn(
                 f'[PERCEPTION] Deactivate ignored. Current state: {self._state.name}'
             )
-            return False 
-        
-        if not self._wait_for_service():
-            self._set_error('Lifecycle service unavailable')
             return False
-        
-        self.node.get_logger().info('[PERCEPTION] Deactivating perception subsystem...')
+
+        if not self._wait_for_service():
+            self._set_error("Lifecycle service unavailable")
+            return False
+
+        self.node.get_logger().info("[PERCEPTION] Deactivating perception subsystem...")
+
         self._state = PerceptionControllerState.DEACTIVATING
+        self._reset_flags([LifecycleStage.DEACTIVATED])
 
-        self._yolo_deactivated = False
-        self._yolo_tracker_deactivated = False
-        self._projection_deactivated = False
-        self._memory_node_deactivated = False
-        self._voxel_state_est_node_deactivated = False
-
-        # Cleanup process 
-        self._call(
-            self._yolo_client,
+        self._call_all(
             self.DEACTIVATE_ID,
-            self._on_yolo_deactivated
+            lambda node: self._make_callback(
+                node,
+                LifecycleStage.DEACTIVATED,
+                self._try_cleanup
+            )
         )
 
-        self._call(
-            self._yolo_tracker_client,
-            self.DEACTIVATE_ID,
-            self._on_yolo_tracker_deactivated
-        )
-        
-        self._call(
-            self._projection_client,
-            self.DEACTIVATE_ID,
-            self._on_projection_deactivated
-        )
-
-        self._call(
-            self._memory_node_client,
-            self.DEACTIVATE_ID,
-            self._on_memory_node_deactivated
-        )
-
-        self._call(
-            self._voxel_state_est_node_client,
-            self.DEACTIVATE_ID,
-            self._voxel_est_node_deactivated
-        )
+        return True
 
     # ========================================
     # INTERNAL
     # ========================================
 
     def _wait_for_service(self) -> bool:
-        ok_yolo = self._yolo_client.wait_for_service(timeout_sec=1.0)
-        ok_yolo_tracker = self._yolo_tracker_client.wait_for_service(timeout_sec=1.0)
-        ok_proj = self._projection_client.wait_for_service(timeout_sec=1.0)
-        ok_memory = self._memory_node_client.wait_for_service(timeout_sec=1.0)
+        ok = True
 
-        if not ok_yolo:
-            self.node.get_logger().error(
-                f'[PERCEPTION] Service unavailable: {self._yolo_name}/change_state'
-            )
-        if not ok_yolo_tracker:
-            self.node.get_logger().error(
-                f'[PERCEPTION] Service unavailable: {self._yolo_tracker_name}/change_state'
-            )
-        if not ok_proj:
-            self.node.get_logger().error(
-                f'[PERCEPTION] Service unavailable: {self._projection_name}/change_state'
-            )
+        for node, client in self._clients.items():
+            if not client.wait_for_service(timeout_sec=1.0):
+                self.node.get_logger().error(
+                    f"[PERCEPTION] Service unavailable: {node.value}/change_state"
+                )
+                ok = False
 
-        if not ok_memory:
-            self.node.get_logger().error(
-                f'[PERCEPTION] Service unavailable: {self._memory_node_name}/change_state'
-            )
-
-        return ok_yolo and ok_yolo_tracker and ok_proj and ok_memory
+        return ok
 
     def _call(self, client, transition_id, callback=None):
-
         try:
             req = ChangeState.Request()
             req.transition.id = transition_id
@@ -249,342 +160,111 @@ class PerceptionController:
                 future.add_done_callback(callback)
 
             return future
+
         except Exception as e:
-            self.node.get_logger().error(f"Failed to call, {e}")
+            self.node.get_logger().error(f"[PERCEPTION] Call failed: {e}")
+
+    def _call_all(self, transition_id, callback_factory):
+        for node in ManagedNode:
+            self._call(
+                self._clients[node],
+                transition_id,
+                callback_factory(node)
+            )
+
+    def _make_callback(self, node, stage, next_step):
+        def callback(future):
+            if not self._check_future_success(future):
+                self._set_error(f"{node.name} failed at {stage.name}")
+                return
+
+            self.node.get_logger().info(
+                f"[PERCEPTION] {node.name} {stage.name} success"
+            )
+
+            self._flags[node][stage] = True
+            next_step()
+
+        return callback
 
     def _check_future_success(self, future) -> bool:
         try:
             result = future.result()
         except Exception as e:
             self.node.get_logger().error(
-                f'[PERCEPTION] failed with exception: {e}'
+                f"[PERCEPTION] Exception: {e}"
             )
             return False
 
         if result is None:
-            self.node.get_logger().error(
-                f'[PERCEPTION] returned no result'
-            )
+            self.node.get_logger().error("[PERCEPTION] No result")
             return False
 
         if not result.success:
-            self.node.get_logger().error(
-                f'[PERCEPTION] failed (success=False)'
-            )
+            self.node.get_logger().error("[PERCEPTION] success=False")
             return False
 
-        self.node.get_logger().info(
-            f'[PERCEPTION] success'
-        )
         return True
 
-    def _set_error(self, message: str):
-        self.node.get_logger().error(f'[PERCEPTION] {message}')
+    def _all_done(self, stage: LifecycleStage) -> bool:
+        return all(self._flags[node][stage] for node in ManagedNode)
+
+    def _reset_flags(self, stages):
+        for node in ManagedNode:
+            for stage in stages:
+                self._flags[node][stage] = False
+
+    def _set_error(self, msg):
+        self.node.get_logger().error(f"[PERCEPTION] {msg}")
         self._state = PerceptionControllerState.ERROR
-    
+
     # ========================================
-    # CONFIGURE -> ACTIVATE CHAIN
+    # CHAIN LOGIC
     # ========================================
-    def _on_yolo_configured(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("YOLO configure failed")
-            return
-
-        self._yolo_configured = True
-        self._try_activate()
-
-    def _on_yolo_tracker_configured(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("YOLO tracker configure failed")
-            return
-
-        self._yolo_tracker_configured = True
-        self._try_activate()
-
-    def _on_projection_configured(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("Projection configure failed")
-            return
-        
-        self._projection_configured = True
-        self._try_activate()
-
-    def _on_memory_node_configured(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("Memory configure failed")
-            return
-        
-        self._memory_node_configured = True
-        self._try_activate()
-
-    def _voxel_est_node_configured(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("Voxel estimator node configure failed")
-            return
-        
-        self._voxel_state_est_node_configured = True
-        self._try_activate()
-
-    def _on_yolo_activated(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("YOLO activate failed")
-            return
-
-        self._yolo_activated = True
-        self._try_set_active()
-
-    def _on_yolo_tracker_activated(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("YOLO tracker activate failed")
-            return
-
-        self._yolo_tracker_activated = True
-        self._try_set_active()
-
-    def _on_projection_activated(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("Projection activate failed")
-            return
-
-        self._projection_activated = True
-        self._try_set_active()
-    
-    def _on_memory_node_activated(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("Memory node activate failed")
-            return
-
-        self._memory_node_activated = True
-        self._try_set_active()
-
-    def _voxel_est_node_activated(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("Voxel Estimator activate failed")
-            return
-
-        self._voxel_state_est_node_activated = True
-        self._try_set_active()
 
     def _try_activate(self):
-
-        if not (self._yolo_configured and self._projection_configured
-                 and self._yolo_tracker_configured and self._memory_node_configured
-                 and self._voxel_state_est_node_configured):
+        if not self._all_done(LifecycleStage.CONFIGURED):
             return
 
-        self.node.get_logger().info("[PERCEPTION] Both configured → activating")
+        self.node.get_logger().info("[PERCEPTION] All configured → activating")
 
         self._state = PerceptionControllerState.ACTIVATING
 
-        self._call(
-            self._yolo_client,
+        self._call_all(
             self.ACTIVATE_ID,
-            self._on_yolo_activated
-        )
-
-        self._call(
-            self._yolo_tracker_client,
-            self.ACTIVATE_ID,
-            self._on_yolo_tracker_activated
-        )
-
-        self._call(
-            self._projection_client,
-            self.ACTIVATE_ID,
-            self._on_projection_activated
-        )
-
-        self._call(
-            self._memory_node_client,
-            self.ACTIVATE_ID,
-            self._on_memory_node_activated
-        )
-
-        self._call(
-            self._voxel_state_est_node_client,
-            self.ACTIVATE_ID,
-            self._voxel_est_node_activated
+            lambda node: self._make_callback(
+                node,
+                LifecycleStage.ACTIVATED,
+                self._try_set_active
+            )
         )
 
     def _try_set_active(self):
-
-        if not (self._yolo_activated and self._projection_activated 
-                and self._yolo_tracker_activated and self._memory_node_activated
-                and self._voxel_state_est_node_activated):
+        if not self._all_done(LifecycleStage.ACTIVATED):
             return
 
         self._state = PerceptionControllerState.ACTIVE
         self.node.get_logger().info("[PERCEPTION] Subsystem ACTIVE")
 
-    # ========================================
-    # ACTIVATE -> CLEAN UP CHAIN
-    # ========================================
-
-    def _on_yolo_deactivated(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("YOLO deactivate failed")
-            return
-
-        self._yolo_deactivated = True
-        self._try_cleanup()
-
-    def _on_yolo_tracker_deactivated(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("YOLO deactivate failed")
-            return
-
-        self._yolo_tracker_deactivated = True
-        self._try_cleanup()
-
-    def _on_projection_deactivated(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("Projection deactivate failed")
-            return
-
-        self._projection_deactivated = True
-        self._try_cleanup()
-
-    def _on_memory_node_deactivated(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("Projection deactivate failed")
-            return
-
-        self._memory_node_deactivated = True
-        self._try_cleanup()
-
-    def _voxel_est_node_deactivated(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("Voxel estimator deactivate failed")
-            return
-
-        self._voxel_state_est_node_deactivated = True
-        self._try_cleanup()
-
-    def _on_yolo_cleaned(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("YOLO cleanup failed")
-            return
-
-        self._yolo_cleaned = True
-        self._try_set_inactive()
-
-    def _on_yolo_tracker_cleaned(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("YOLO cleanup failed")
-            return
-
-        self._yolo_tracker_cleaned = True
-        self._try_set_inactive()
-
-    def _on_projection_cleaned(self, future):
-
-        result = future.result()
-        if not result.success:
-            self.node.get_logger().error("Projection cleanup failed")
-            return
-
-        self._projection_cleaned = True
-        self._try_set_inactive()
-
-    def _on_memory_node_cleaned(self, future):
-
-            result = future.result()
-            if not result.success:
-                self.node.get_logger().error("Memory Node cleanup failed")
-                return
-
-            self._memory_node_cleaned = True
-            self._try_set_inactive()
-
-    def _voxel_est_node_cleaned(self, future):
-
-            result = future.result()
-            if not result.success:
-                self.node.get_logger().error("Voxel State Estimator cleanup failed")
-                return
-
-            self._voxel_state_est_node_cleaned = True
-            self._try_set_inactive()
-
     def _try_cleanup(self):
-
-        if not (self._yolo_deactivated and self._yolo_tracker_deactivated 
-                and self._projection_deactivated and self._memory_node_deactivated):
+        if not self._all_done(LifecycleStage.DEACTIVATED):
             return
 
         self.node.get_logger().info("[PERCEPTION] All deactivated → cleanup")
 
         self._state = PerceptionControllerState.CLEANING_UP
 
-        self._call(
-            self._yolo_client,
+        self._call_all(
             self.CLEANUP_ID,
-            self._on_yolo_cleaned
+            lambda node: self._make_callback(
+                node,
+                LifecycleStage.CLEANED,
+                self._try_set_inactive
+            )
         )
 
-        self._call(
-            self._yolo_tracker_client,
-            self.CLEANUP_ID,
-            self._on_yolo_tracker_cleaned
-        )
-
-        self._call(
-            self._projection_client,
-            self.CLEANUP_ID,
-            self._on_projection_cleaned
-        )
-
-        self._call(
-            self._memory_node_client,
-            self.CLEANUP_ID,
-            self._on_memory_node_cleaned
-        )
-
-        self._call(
-            self._voxel_state_est_node_client,
-            self.CLEANUP_ID,
-            self._voxel_est_node_cleaned
-        )
-    
     def _try_set_inactive(self):
-
-        if not (self._yolo_cleaned and self._yolo_tracker_cleaned 
-                and self._projection_cleaned and self._memory_node_cleaned
-                and self._voxel_state_est_node_cleaned):
+        if not self._all_done(LifecycleStage.CLEANED):
             return
 
         self._state = PerceptionControllerState.INACTIVE

@@ -83,8 +83,6 @@ class OdometryController:
         future = self.odom_client.call_async(req)
         future.add_done_callback(self._on_odom_activated)
 
-    # -----------------------------
-
     def _on_odom_activated(self, future):
 
         try:
@@ -99,8 +97,6 @@ class OdometryController:
 
         self.node.get_logger().info("[Odom] ACTIVE")
         self._is_odom_active = True
-
-    # -----------------------------
 
     def _on_odom_deactivate(self, future):
         
@@ -122,8 +118,6 @@ class OdometryController:
 
         future = self.odom_client.call_async(req)
         future.add_done_callback(self._on_odom_cleanup)
-
-    # -----------------------------
 
     def _on_odom_cleanup(self, future):
 
