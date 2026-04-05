@@ -18,6 +18,23 @@ from tf2_ros import TransformException
 from phaseshift_interfaces.msg import DetectedObjectArray, DetectedObject
 
 class ProjectionNode(LifecycleNode):
+    """
+    Role:
+    - Convert 2D detections into 3D positions using depth camera
+    - Transform object coordinates from camera frame to global frame (map)
+
+    Pipeline:
+    2D Detection → Depth Sampling → 3D Reconstruction → TF Transform → 3D Object
+
+    Notes:
+    - This node bridges perception (image space) and robotics (world space)
+    - No tracking or state estimation is performed here
+    - Output is purely geometric (metric space)
+    """
+
+    # TODO: Fix this, hard coded for unity depth camera distance value
+    DEPTH_SCALE = 20
+
     def __init__(self):
         super().__init__('projection_node')
 
@@ -163,9 +180,39 @@ class ProjectionNode(LifecycleNode):
     # Depth Callbacks
     # -----------------------------
     def _detection_callback(self, msg):
+        """
+        Main processing pipeline for 2D → 3D projection.
+
+        Steps:
+        1. Validate depth and camera info availability
+        2. Extract camera intrinsics (fx, fy, cx, cy)
+        3. For each detection:
+            - Compute ROI (adaptive roi calculation)
+            - Sample depth points (grid sampling)
+            - Estimate depth using median
+            - Back-project to 3D (camera frame)
+            - Transform to target frame (map)
+        4. Publish 3D detected objects
+
+        Notes:
+        - Uses median depth to reduce noise and outliers
+        - ROI focuses on lower part of object (ground contact assumption)
+        """
 
         if self._latest_depth is None or self._camera_info is None:
             return
+        
+        if self._latest_depth_header is None:
+            return
+            
+        dt = abs(
+            (msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9) -
+            (self._latest_depth_header.stamp.sec + self._latest_depth_header.stamp.nanosec * 1e-9)
+        )
+
+        if dt > 0.1:
+            self.get_logger().warn(f"[Projection] Depth-Detection desync: {dt:.3f}s")
+            return        
 
         fx = self._camera_info.k[0]
         fy = self._camera_info.k[4]
@@ -202,11 +249,10 @@ class ProjectionNode(LifecycleNode):
             # ---------------------------
             # Select ROI
             # ---------------------------
-            roi = self._compute_bottom_roi(
+            roi = self._compute_adaptive_roi(
                 u_center, v_center, bbox_w, bbox_h, width, height
             )
 
-            depth_camera_range = 20
             points = []
         
             if roi is not None:
@@ -219,7 +265,7 @@ class ProjectionNode(LifecycleNode):
                 for v in v_samples:
                     for u in u_samples:
 
-                        z = depth_img[v, u] * depth_camera_range
+                        z = depth_img[v, u] * self.DEPTH_SCALE
 
                         if not self._is_valid_depth(z):
                             continue
@@ -231,18 +277,39 @@ class ProjectionNode(LifecycleNode):
                         points.append([x, y, z])
 
             # ---------------------------
-            # median 계산
+            # median 
             # ---------------------------
             if len(points) >= 5:
                 pts = np.array(points)
 
+                z_values = pts[:, 2]
+
+                median_z = np.median(z_values)
+
+                # depth filtering
+                mask = np.abs(z_values - median_z) < 1.0
+                filtered_pts = pts[mask]
+
+                if len(pts) >= 3:
+                    pts = filtered_pts
+
+                # ---------------------------
+                # robust depth (ground-aware)
+                # ---------------------------
+                z = float(np.percentile(pts[:, 2], 50))
+
+                # ---------------------------
+                # position
+                # ---------------------------
                 x = float(np.median(pts[:, 0]))
                 y = float(np.median(pts[:, 1]))
-                z = float(np.median(pts[:, 2]))
+
+                # optional clamp
+                z = np.clip(z, 0.2, 10.0)
 
             else:
                 # fallback (center pixel)
-                z = depth_img[v_center, u_center] * depth_camera_range
+                z = depth_img[v_center, u_center] * self.DEPTH_SCALE
 
                 if not self._is_valid_depth(z):
                     continue
@@ -259,9 +326,6 @@ class ProjectionNode(LifecycleNode):
             point_cam.point.x = float(x)
             point_cam.point.y = float(y)
             point_cam.point.z = float(z)
-
-            # self.get_logger().info(f"u,v: {u},{v}")
-            # self.get_logger().info(f"depth: {z}")
 
             try:
                 point_map = self._tf_buffer.transform(
@@ -283,6 +347,7 @@ class ProjectionNode(LifecycleNode):
             obj.pose.position.x = point_map.point.x
             obj.pose.position.y = point_map.point.y
             obj.pose.position.z = point_map.point.z
+            # obj.pose.position.z = 0.0
             obj.pose.orientation.w = 1.0
 
             out.objects.append(obj)
@@ -293,53 +358,73 @@ class ProjectionNode(LifecycleNode):
     def _is_valid_pixel(self, u, v, width, height):
         return 0 <= u < width and 0 <= v < height
     
-    def _sample_depth(self, depth_img, u, v):
-        z = depth_img[v, u]
+    def _compute_adaptive_roi(self, u_center, v_center, bbox_w, bbox_h, width, height):
+        """
+        Adaptive ROI selection based on object size.
 
-        if z == 0 or not np.isfinite(z):
+        Strategy:
+        - Small objects → center-focused ROI
+        - Large objects → bottom-focused ROI (ground contact assumption)
+        """
+
+        bbox_w = max(4, bbox_w)
+        bbox_h = max(4, bbox_h)
+
+        bbox_area = bbox_w * bbox_h
+
+        # ---------------------------
+        # Adaptive vertical ROI
+        # ---------------------------
+        if bbox_area < 2000:
+            # small object → center
+            v_min = int(v_center - bbox_h * 0.2)
+            v_max = int(v_center + bbox_h * 0.2)
+        else:
+            # large object → bottom
+            v_min = int(v_center + bbox_h * 0.2)
+            v_max = int(v_center + bbox_h * 0.5)        
+
+
+        # ---------------------------
+        # horizontal ROI (center 50%)
+        # ---------------------------
+        roi_width = int(bbox_w * 0.5)
+
+        u_min = int(u_center - roi_width / 2)
+        u_max = int(u_center + roi_width / 2)
+
+        # ---------------------------
+        # clamp
+        # ---------------------------
+        u_min = max(0, u_min)
+        u_max = min(width - 1, u_max)
+        v_min = max(0, v_min)
+        v_max = min(height - 1, v_max)
+
+        if u_min >= u_max or v_min >= v_max:
             return None
 
-        return float(z)
-    
-    def _collect_points(self, depth_img, samples, fx, fy, cx, cy):
-        points = []
+        return (u_min, u_max, v_min, v_max)
 
-        for (u, v) in samples:
-
-            z = depth_img[v, u]
-
-            if not self._is_valid_depth(z):
-                continue
-
-            x = (u - cx) * z / fx
-            y = (v - cy) * z / fy
-
-            points.append([x, y, z])
-
-        return points
-
-
-    def _estimate_median_point(self, points):
-
-        if len(points) < 5:
-            return None
-        
-        pts = np.array(points)
-
-        x = float(np.median(pts[:, 0]))
-        y = float(np.median(pts[:, 1]))
-        z = float(np.median(pts[:, 2]))
-
-        return x, y, z
-    
     def _compute_bottom_roi(self, u_center, v_center, bbox_w, bbox_h, width, height):
+        """
+        Compute a region-of-interest focused on the lower part of the bounding box.
 
-        # 최소 크기 보장
+        Rationale:
+        - Lower part of objects is more likely to be grounded
+        - Reduces noise from upper regions (e.g., occlusions, background)
+
+        Strategy:
+        - Use 30%~50% vertical region from bbox bottom
+        - Use center 50% horizontally
+        """
+
+        # minimum scale
         bbox_w = max(4, bbox_w)
         bbox_h = max(4, bbox_h)
 
         # ---------------------------
-        # bbox 경계 계산
+        # bbox boundary
         # ---------------------------
         u_min_box = int(u_center - bbox_w / 2)
         u_max_box = int(u_center + bbox_w / 2)
@@ -350,19 +435,17 @@ class ProjectionNode(LifecycleNode):
         bottom_start_ratio = 0.3
         bottom_end_ratio = 0.5
 
-        # 세로 ROI (bbox 내부)
+        # height ROS
         v_min = int(v_min_box + bbox_h * bottom_start_ratio)
         v_max = int(v_min_box + bbox_h * bottom_end_ratio)
 
-        # 가로 ROI (중앙 50%)
+        # width ROI (center 50%)
         roi_width = int(bbox_w * 0.5)
 
         u_min = int(u_center - roi_width / 2)
         u_max = int(u_center + roi_width / 2)
 
-        # ---------------------------
-        # clamp (이미지 경계)
-        # ---------------------------
+        # clamp
         u_min = max(0, u_min)
         u_max = min(width - 1, u_max)
         v_min = max(0, v_min)
@@ -384,27 +467,6 @@ class ProjectionNode(LifecycleNode):
             return False
 
         return True
-        
-    def _sample_depth_region(self, depth_img, u_min, u_max, v_min, v_max):
-
-        if u_min >= u_max or v_min >= v_max:
-            return None
-
-        depth_values = []
-
-        u_samples = np.linspace(u_min, u_max, num=5, dtype=int)
-        v_samples = np.linspace(v_min, v_max, num=5, dtype=int)
-
-        for v in v_samples:
-            for u in u_samples:
-                z = depth_img[v, u]
-                if self._is_valid_depth(z):
-                    depth_values.append(float(z))
-
-        if len(depth_values) < 5:
-            return None
-
-        return float(np.median(depth_values))
 
 def main(args=None):
     rclpy.init(args=args)

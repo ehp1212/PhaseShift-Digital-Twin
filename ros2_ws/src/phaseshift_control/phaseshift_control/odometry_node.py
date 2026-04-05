@@ -11,12 +11,12 @@ from lifecycle_msgs.srv import ChangeState, GetState
 
 """
 TODO: Diff drive
-Manual Driving 기준:
+Manual Driving:
 
-configure → publisher/subscription 생성
-activate → timer 시작
-deactivate → timer 정지 + velocity reset
-cleanup → 리소스 삭제
+configure → publisher/subscription 
+activate → start timer
+deactivate → stop timer + velocity reset
+cleanup → clean up resource
 """
 
 class OdometryLifecycleNode(LifecycleNode):

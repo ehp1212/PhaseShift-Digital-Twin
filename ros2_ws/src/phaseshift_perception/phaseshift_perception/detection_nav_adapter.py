@@ -3,40 +3,43 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
+from std_msgs.msg import Header
 
-from phaseshift_interfaces.msg import DetectedObjectArray
-
-
+from phaseshift_interfaces.msg import TrackedObjectArray
 class DetectionNavAdapter(Node):
+
+    MINIMUM_SPEED_THREDHOLD = 0.05
 
     def __init__(self):
         super().__init__("detection_nav_adapter")
 
-        # ---------------------------
-        # Subscriber
-        # ---------------------------
-        self._sub = self.create_subscription(
-            DetectedObjectArray,
-            '/perception/objects_filtered',
-            self._callback,
-            10
+        qos_sensor = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5
         )
 
-        # ---------------------------
-        # Publisher
-        # ---------------------------
+        self._sub = self.create_subscription(
+            TrackedObjectArray,
+            '/perception/tracked_objects',
+            self._callback,
+            qos_sensor
+        )
+
         self._pub = self.create_publisher(
             PointCloud2,
             "/perception/obstacles",
-            10
+            qos_sensor
         )
 
         # ---------------------------
         # Internal state
         # ---------------------------
         self._latest_objects = None
+        self._last_points = []
 
         # publish rate (10Hz)
         self.create_timer(0.1, self._publish_timer)
@@ -44,62 +47,77 @@ class DetectionNavAdapter(Node):
         self.get_logger().info("Detection Nav Adapter started...")
 
     # --------------------------------------------------
-    # Callback (store only)
+    # Callback
     # --------------------------------------------------
-
-    def _callback(self, msg: DetectedObjectArray):
+    def _callback(self, msg: TrackedObjectArray):
         self._latest_objects = msg
 
     # --------------------------------------------------
     # Timer-based publish
     # --------------------------------------------------
-
     def _publish_timer(self):
 
         if self._latest_objects is None:
-            return
+            if len(self._last_points) == 0:
+                return
+            points = self._last_points
 
-        msg = self._latest_objects
+        else:
+            msg = self._latest_objects
+            points = []
 
-        points = []
+            for obj in msg.objects:
 
-        for obj in msg.objects:
+                cx = obj.pose.position.x
+                cy = obj.pose.position.y
 
-            cx = obj.pose.position.x
-            cy = obj.pose.position.y
+                if obj.state_type == "DYNAMIC":
+                    radius = self._compute_dynamic_radius(obj)
 
-            # ---------------------------
-            # Dynamic radius
-            # ---------------------------
-            radius = self._compute_dynamic_radius(obj)
+                    speed = np.sqrt(obj.velocity.x**2 + obj.velocity.y**2)
+                    radius += np.clip(speed * 0.3, 0.0, 0.5)
 
-            # ---------------------------
-            # Circle sampling
-            # ---------------------------
-            circle_pts = self._sample_circle(cx, cy, radius)
+                    risk = self._compute_risk(obj)
+                    radius *= (1.0 + risk)
+                    radius = max(radius, 0.4)
 
-            points.extend(circle_pts)
+                    shape_pts = self._sample_motion_aware(obj, radius)
 
+                elif obj.state_type == "STATIC_NEW":
+                    radius = 0.3
+                    shape_pts = self._sample_circle(cx, cy, radius)
+
+                else:
+                    radius = 0.3
+                    shape_pts = self._sample_circle(cx, cy, radius)
+
+                points.extend(shape_pts)
+
+            self._last_points = points
+
+        # ---------------------------
+        # publish
+        # ---------------------------
         if len(points) == 0:
             return
 
-        # ---------------------------
-        # PointCloud2 생성
-        # ---------------------------
-        header = msg.header
-        header.frame_id = "map"  # 반드시 map or odom
+        header = Header()
+        header.stamp = self.get_clock().now().to_msg()  # 🔥 더 안전
+        header.frame_id = "map"
 
         pc_msg = point_cloud2.create_cloud_xyz32(header, points)
-
         self._pub.publish(pc_msg)
-
+        
     # --------------------------------------------------
     # Dynamic radius
     # --------------------------------------------------
 
     def _compute_dynamic_radius(self, obj):
 
-        z = obj.pose.position.z
+        x = obj.pose.position.x
+        y = obj.pose.position.y
+        dist = np.sqrt(x*x + y*y)
+
         class_id = obj.class_id
 
         # base size by class
@@ -111,7 +129,7 @@ class DetectionNavAdapter(Node):
             base = 0.25
 
         # depth scaling
-        scale = np.clip(z * 0.15, 0.5, 1.5)
+        scale = np.clip(dist * 0.1, 0.5, 1.5)
 
         return base * scale
 
@@ -141,7 +159,73 @@ class DetectionNavAdapter(Node):
                 points.append([x, y, 0.0])
 
         return points
+    
+    def _sample_motion_aware(self, obj, radius):
+        """
+        calculate predicted paths
+        apply the points to costmap
+        """
+        cx = obj.pose.position.x
+        cy = obj.pose.position.y
 
+        vx = obj.velocity.x
+        vy = obj.velocity.y
+
+        speed = np.sqrt(vx * vx + vy * vy)
+
+        # static or very slow object
+        if obj.state_type != "DYNAMIC":
+            return self._sample_circle(cx, cy, radius)
+
+        if speed < self.MINIMUM_SPEED_THREDHOLD:
+            return self._sample_circle(cx, cy, radius)
+        
+        points = []
+        
+        # direction
+        dx = vx / speed
+        dy = vy / speed
+
+        # lookahead distance
+        lookahead = np.clip(speed * 1.0, 0.3, 1.5)
+
+        # future position
+        num_steps = 4
+
+        for t in np.linspace(0.0, lookahead, num_steps):
+
+            px = cx + dx * t
+            py = cy + dy * t
+
+            pts = self._sample_circle(px, py, radius)
+            points.extend(pts)
+        
+        return points
+    
+    def _compute_risk(self, obj):
+
+        px = obj.pose.position.x
+        py = obj.pose.position.y
+
+        vx = obj.velocity.x
+        vy = obj.velocity.y
+
+        # distance
+        dist = np.sqrt(px * px + py * py)
+
+        # speed
+        speed = np.sqrt(vx * vx + vy * vy)
+
+        # confidence
+        confidence = obj.motion_confidence
+
+        # risk
+        risk = (speed * confidence) / (dist + 0.1)
+
+        # clamp
+        risk = np.clip(risk, 0.0, 2.0)
+
+        return risk        
 
 def main(args=None):
     rclpy.init(args=args)

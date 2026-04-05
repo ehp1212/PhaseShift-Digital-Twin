@@ -37,10 +37,18 @@ def generate_launch_description():
         output='screen'
     )    
 
+    voxel_state_estimator_node = Node(
+        package='phaseshift_perception',
+        executable='voxel_state_estimator_node',
+        name='voxel_state_estimator_node',
+        output='screen'
+    )    
+
     return LaunchDescription([
         yolo_detector_node,
         yolo_tracker_node,
         projection_node,
         detection_memory_node,
-        detection_nav_adapter
+        detection_nav_adapter,
+        voxel_state_estimator_node
     ])

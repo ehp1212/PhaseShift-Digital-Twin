@@ -11,6 +11,18 @@ from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesis, Obj
 
 
 class YOLOTrackerNode(LifecycleNode):
+    """
+    Role:
+    - Associate 2D detections across frames
+    - Maintain short-term identity (tracking ID)
+    - Provide temporally consistent detections
+
+    Notes:
+    - Lightweight tracker (IoU + distance)
+    - No motion model (Kalman not used here)
+    - No semantic or state reasoning
+    """
+
     def __init__(self):
         super().__init__('yolo_tracker_node')
 
@@ -80,41 +92,73 @@ class YOLOTrackerNode(LifecycleNode):
             self._tracks = []
         return super().on_cleanup(state)
     
-    
     # -----------------------------
     # PROCESS CALLBACK
     # -----------------------------
     def _callback(self, msg):
         now = self.get_clock().now().nanoseconds / 1e9
 
+        used_tracks = set()
+
         # -----------------------------
         # Update tracks
         # -----------------------------
         for det in msg.detections:
-            matched = False
 
-            for track in self._tracks:
-                if self._match(det, track):
-                    track['bbox'] = det.bbox
-                    track['last_seen'] = now
-                    matched = True
-                    break
+            best_idx = -1
+            best_score = 0.0
 
-            if not matched:
+            for i, track in enumerate(self._tracks):
+
+                if i in used_tracks:
+                    continue
+
+                iou = self._iou(det, track['bbox'])
+                dist = self._center_distance(det, track['bbox'])
+
+                score = iou - (dist * 0.001)
+
+                if iou > 0.3 or dist < 30:
+                    if score > best_score:
+                        best_score = score
+                        best_idx = i
+
+            if best_idx >= 0:
+                track = self._tracks[best_idx]
+
+                # bbox smoothing
+                track['bbox'] = self._smooth_bbox(track['bbox'], det.bbox)
+
+                track['last_seen'] = now
+                track['hits'] += 1
+                track['misses'] = 0
+
+                used_tracks.add(best_idx)
+
+            else:
+                # new track
                 self._tracks.append({
                     'id': self._next_id,
                     'bbox': det.bbox,
-                    'last_seen': now
+                    'last_seen': now,
+                    'hits': 1,
+                    'misses': 0
                 })
-
                 self._next_id += 1
+        
+        # -----------------------------
+        # Update Misses
+        # -----------------------------
+        for track in self._tracks:
+            if now - track['last_seen'] > 0.1:
+                track['misses'] += 1        
 
         # -----------------------------
         # Remove Old tracks (TTL)
         # -----------------------------
         self._tracks = [
             t for t in self._tracks
-            if now - t['last_seen'] < 1.0
+            if t['misses'] < 5
         ]
 
         # -----------------------------
@@ -124,6 +168,11 @@ class YOLOTrackerNode(LifecycleNode):
         out.header = msg.header
 
         for track in self._tracks:
+
+            # minimum condition
+            if track['hits'] < 2:
+                continue
+
             det = Detection2D()
             det.bbox = track['bbox']
 
@@ -150,6 +199,10 @@ class YOLOTrackerNode(LifecycleNode):
         return iou_score > 0.15 or dist < 20
 
     def _iou(self, det, track_bbox) -> float:
+        """
+        Compute Intersection-over-Union between two bounding boxes
+        """
+
         # det bbox
         cx = det.bbox.center.position.x
         cy = det.bbox.center.position.y
@@ -192,6 +245,10 @@ class YOLOTrackerNode(LifecycleNode):
         return inter_area / union_area
 
     def _center_distance(self, det, track_bbox):
+        """
+        Euclidean distance between bbox centers
+        """
+
         cx1 = det.bbox.center.position.x
         cy1 = det.bbox.center.position.y
 
@@ -200,6 +257,18 @@ class YOLOTrackerNode(LifecycleNode):
 
         return ((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2) ** 0.5
     
+    def _smooth_bbox(self, old, new, alpha=0.7):
+        """
+        Apply exponential smoothing to reduce bbox jitter
+        """
+
+        new.center.position.x = alpha * old.center.position.x + (1 - alpha) * new.center.position.x
+        new.center.position.y = alpha * old.center.position.y + (1 - alpha) * new.center.position.y
+
+        new.size_x = alpha * old.size_x + (1 - alpha) * new.size_x
+        new.size_y = alpha * old.size_y + (1 - alpha) * new.size_y
+
+        return new
 
 def main(args=None):
     rclpy.init(args=args)

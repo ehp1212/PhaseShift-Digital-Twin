@@ -15,8 +15,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/CostmapGrid.msg"
   "msg/NavigationFeedback.msg"
   "msg/SystemState.msg"
+  
   "msg/DetectedObject.msg"
   "msg/DetectedObjectArray.msg"
+  "msg/EstimatedObject.msg"
+  "msg/EstimatedObjectArray.msg"
+  "msg/TrackedObject.msg"
+  "msg/TrackedObjectArray.msg"
 
   "msg/internal/NavState.msg"
 

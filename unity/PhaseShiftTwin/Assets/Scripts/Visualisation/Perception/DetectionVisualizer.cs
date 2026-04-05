@@ -48,12 +48,12 @@ public class DetectionVisualizer : MonoBehaviour, IROS2Interface
     // ==========================
     // ROS CALLBACK
     // ==========================
-    public void OnObjects3D(DetectionObjectArrayFrame msg)
+    public void OnObjects3D(TrackedObjectArrayFrame msg)
     {
         var now = Time.time;
-        foreach (var obj in msg.DetectionObjects)
+        foreach (var obj in msg.TrackedObjects)
         {
-            Vector3 pos = RosToUnity(obj.Pose.Position);
+            Vector3 pos = RosToUnity(obj.Pose.Position) + Vector3.up;
 
             var id = FindMatch(pos);
             if (id == -1)
