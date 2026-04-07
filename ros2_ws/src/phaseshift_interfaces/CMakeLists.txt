@@ -29,6 +29,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SaveVoxelMap.srv"
   "srv/SetGoal.srv"
   "srv/NavigateToGoal.srv"
+  "srv/GetVoxelMapPath.srv"
 
   "srv/internal/InternalCancelNavigate.srv"
   "srv/internal/InternalRequestNavigate.srv"

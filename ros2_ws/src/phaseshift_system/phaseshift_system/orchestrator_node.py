@@ -7,6 +7,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rcl_interfaces.srv import SetParameters
 from ament_index_python.packages import get_package_share_directory
+from tf2_ros import Buffer, TransformListener
 
 from lifecycle_msgs.srv import ChangeState
 from lifecycle_msgs.msg import Transition
@@ -21,6 +22,7 @@ from phaseshift_interfaces.srv import (
     InternalRequestNavigate,
     InternalCancelNavigate,
     InternalRequestRecovery,
+    GetVoxelMapPath
 )
 
 from phaseshift_control.slam_controller import SlamController
@@ -33,6 +35,7 @@ from .pipeline.nav_steps import (
     LocalizationReadyStep,
     LoadMapStep,
     InitialPoseStep,
+    AmclReadyStep,
     Nav2ReadyStep,
     PerceptionStep,
     BehaviourStep,
@@ -189,6 +192,13 @@ class OrchestratorNode(Node):
         package_map_dir = os.path.join(package_dir, "maps")
 
         self.map_manager = MapManager(self, package_map_dir)
+
+        self._srv_voxel = self.create_service(
+            GetVoxelMapPath,
+            "/system/get_voxel_map",
+            self._handle_get_voxel_map
+        )
+
         self._map_yaml = None
 
         self._slam_saved = False
@@ -212,6 +222,9 @@ class OrchestratorNode(Node):
         self.phase = SystemPhase.BOOT
         self.publish_state(self.phase)
 
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
         # ------------------------------
         # PIPELINES
         # ------------------------------
@@ -234,7 +247,7 @@ class OrchestratorNode(Node):
             ),
 
             InitialPoseStep(self, self),
-
+            AmclReadyStep(self), 
             TimeoutStep(
                 self,
                 Nav2ReadyStep(self, self.nav2_controller),
@@ -746,19 +759,6 @@ class OrchestratorNode(Node):
     def _log_phase(self, phase: str, msg: str):
         self.get_logger().info(f"\033[92m[{phase}]\033[0m - {msg}")
 
-    def publish_initial_pose(self):
-        msg = PoseWithCovarianceStamped()
-
-        msg.header.frame_id = "map"
-        msg.header.stamp = self.get_clock().now().to_msg()
-
-        msg.pose.pose.position.x = 0.0
-        msg.pose.pose.position.y = 0.0
-        msg.pose.pose.orientation.w = 1.0
-
-        self.initial_pose_pub.publish(msg)
-        self.get_logger().info("[Nav2] Initial pose published")
-
     def _record_distance(self, distance):
         now = self.get_clock().now().nanoseconds / 1e9
         self._distance_history.append((now, distance))
@@ -834,6 +834,22 @@ class OrchestratorNode(Node):
         if self._slam_saved and self._voxel_saved:
             self.get_logger().info("All maps saved")
             self.set_phase(SystemPhase.MAP_SAVED)
+
+    def _handle_get_voxel_map(self, request, response):
+
+        if self.use_example_map:
+            path = self._map_manager.resolve_3d_map(self.example_map_name)
+        else:
+            path = self._map_manager.resolve_3d_map(self.project_name)
+
+        if path is None:
+            response.success = False
+            response.map_path = ""
+        else:
+            response.success = True
+            response.map_path = path
+
+        return response
 
 
 def main(args=None):

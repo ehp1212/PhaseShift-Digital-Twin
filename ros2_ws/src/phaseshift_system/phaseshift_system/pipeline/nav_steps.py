@@ -1,7 +1,11 @@
-from .core import PipelineStep
+import rclpy
+import time
 
-from nav_msgs.msg import OccupancyGrid
+from .core import PipelineStep
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+
+from geometry_msgs.msg import PoseWithCovarianceStamped
+from nav_msgs.msg import OccupancyGrid
 
 
 # ======================================================
@@ -106,23 +110,139 @@ class WaitForMapTopicStep(PipelineStep):
 
 class InitialPoseStep(PipelineStep):
 
-    def __init__(self, node, ctx):
+    def __init__(self, node, ctx, retry_interval=0.5, timeout_sec=5.0):
         super().__init__(node)
         self.ctx = ctx
+        self.retry_interval = retry_interval
+        self.timeout_sec = timeout_sec
+
+        self._start_time = None
+        self._last_try_time = 0.0
 
     def on_enter(self):
-
-        if self.ctx.initial_pose_sent:
-            return
-
-        self.node.get_logger().info("[PIPELINE] Publishing initial pose")
-
-        self.ctx.publish_initial_pose()
-        self.ctx.initial_pose_sent = True
+        self.node.get_logger().info("[PIPELINE] InitialPoseStep started")
+        self._start_time = time.time()
+        self._last_try_time = 0.0
+        self.ctx.initial_pose_sent = False
 
     def run(self):
-        return self.ctx.initial_pose_sent
 
+        if self.ctx.initial_pose_sent:
+            return True
+
+        now = time.time()
+
+        # timeout
+        if (now - self._start_time) > self.timeout_sec:
+            self.node.get_logger().error("[PIPELINE] InitialPoseStep timeout")
+            return False
+
+        # retry interval
+        if (now - self._last_try_time) < self.retry_interval:
+            return False
+
+        self._last_try_time = now
+
+        # =========================
+        # TF lookup (fallback 포함)
+        # =========================
+        try:
+            trans = self.ctx.tf_buffer.lookup_transform(
+                "map",
+                "base_footprint",
+                rclpy.time.Time()
+            )
+            self.node.get_logger().info("[PIPELINE] Using map->base TF")
+
+        except Exception:
+            try:
+                trans = self.ctx.tf_buffer.lookup_transform(
+                    "odom",
+                    "base_footprint",
+                    rclpy.time.Time()
+                )
+                self.node.get_logger().info("[PIPELINE] Using odom->base TF")
+
+            except Exception as e:
+                self.node.get_logger().warn(
+                    f"[PIPELINE] TF not ready yet, retrying... ({str(e)})"
+                )
+                return False
+
+        # =========================
+        # publish
+        # =========================
+        try:
+            msg = PoseWithCovarianceStamped()
+
+            msg.header.frame_id = "map"
+            msg.header.stamp = self.node.get_clock().now().to_msg()
+
+            msg.pose.pose.position.x = trans.transform.translation.x
+            msg.pose.pose.position.y = trans.transform.translation.y
+            msg.pose.pose.position.z = trans.transform.translation.z
+            msg.pose.pose.orientation = trans.transform.rotation
+
+            self.ctx.initial_pose_pub.publish(msg)
+
+            self.node.get_logger().info(
+                "[PIPELINE] Initial pose published (SUCCESS)"
+            )
+
+            self.ctx.initial_pose_sent = True
+            return True
+
+        except Exception as e:
+            self.node.get_logger().error(
+                f"[PIPELINE] Publish failed: {str(e)}"
+            )
+            return False
+
+# ======================================================
+# AMCL READY
+# ======================================================
+
+class AmclReadyStep(PipelineStep):
+
+    def __init__(self, node, timeout_sec=5.0):
+        super().__init__(node)
+        self.timeout_sec = timeout_sec
+        self._received = False
+        self._start_time = None
+
+    def on_enter(self):
+        self.node.get_logger().info("[PIPELINE] Waiting for AMCL pose...")
+
+        self._received = False
+        self._start_time = time.time()
+
+        qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL
+        )
+
+        self.sub = self.node.create_subscription(
+            PoseWithCovarianceStamped,
+            "/amcl_pose",
+            self._callback,
+            qos
+        )
+
+    def _callback(self, msg):
+        self._received = True
+
+    def run(self):
+
+        if self._received:
+            self.node.get_logger().info("[PIPELINE] AMCL is READY")
+            return True
+
+        if (time.time() - self._start_time) > self.timeout_sec:
+            self.node.get_logger().error("[PIPELINE] AMCL ready timeout")
+            return False
+
+        return False
 
 # ======================================================
 # NAV2 READY

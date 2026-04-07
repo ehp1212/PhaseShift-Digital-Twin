@@ -34,19 +34,22 @@ class VoxelChangeDetectionNode(LifecycleNode):
         self.declare_parameter('voxel_resolution', 0.15)
         self.declare_parameter('input_topic', '/velodyne_points')
         self.declare_parameter('output_topic', '/perception_geometry/change_points')
+        self.declare_parameter('live_voxel_topic', '/perception_geometry/live_voxel_points')
         self.declare_parameter('target_frame', 'map')
 
         self._voxel_map_path = ''
         self._resolution = 0.15
         self._input_topic = '/velodyne_points'
         self._output_topic = '/perception_geometry/change_points'
+        self._live_voxel_topic = '/perception_geometry/live_voxel_points'
 
         self._voxel_dict = {}
         self._map_loaded = False
         self._hash_mul = np.array([73856093, 19349663, 83492791], dtype=np.int64)
 
         self._sub = None
-        self._dynamic_pub = None
+        self._change_points_pub = None
+        self._live_voxel_points_pub = None
 
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
@@ -63,6 +66,7 @@ class VoxelChangeDetectionNode(LifecycleNode):
         self._resolution = float(self.get_parameter('voxel_resolution').value)
         self._input_topic = self.get_parameter('input_topic').value
         self._output_topic = self.get_parameter('output_topic').value
+        self._live_voxel_topic = self.get_parameter('live_voxel_topic').value
         self._target_frame = self.get_parameter('target_frame').value
 
         if not self._voxel_map_path:
@@ -74,9 +78,15 @@ class VoxelChangeDetectionNode(LifecycleNode):
             self._log_info_label('VOXEL CHANGE DETECTION NODE', "Failed to load voxel map")
             return TransitionCallbackReturn.FAILURE
 
-        self._dynamic_pub = self.create_publisher(
+        self._change_points_pub = self.create_publisher(
             PointCloud2,
             self._output_topic,
+            10
+        )
+
+        self._live_voxel_points_pub = self.create_publisher(
+            PointCloud2,
+            self._live_voxel_topic,
             10
         )
 
@@ -122,7 +132,8 @@ class VoxelChangeDetectionNode(LifecycleNode):
             self._sub = None
 
         self._map_loaded = False
-        self._dynamic_pub = None
+        self._change_points_pub = None
+        self._live_voxel_points_pub = None
 
         return TransitionCallbackReturn.SUCCESS    
     
@@ -171,7 +182,7 @@ class VoxelChangeDetectionNode(LifecycleNode):
             self.get_logger().error(f"Load failed: {e}")
             return False
         finally:
-            # TODO: Testing voxel map
+
             header = Header()
             header.frame_id = 'map'
 
@@ -196,7 +207,8 @@ class VoxelChangeDetectionNode(LifecycleNode):
         points = self._pointcloud2_to_numpy(transformed_msg)
         if points.size == 0:
             return
-
+        
+        # voxelization
         indices = np.floor(points / self._resolution).astype(np.int32)
 
         voxel_keys = [
@@ -204,14 +216,37 @@ class VoxelChangeDetectionNode(LifecycleNode):
             for ix, iy, iz in indices
         ]
 
-        mask = [
-            not self._is_static(key)
-            for key in voxel_keys
-        ]
+        # remove duplicates
+        voxel_key_set = set(voxel_keys)
 
-        dynamic_points = points[mask]
+        # live voxel
+        live_voxel_points = np.array([
+            (np.array(key, dtype=np.float32) + 0.5) * self._resolution
+            for key in voxel_key_set
+        ], dtype=np.float32)
 
-        self._publish_dynamic_points(dynamic_points, self._target_frame, msg.header.stamp)
+        # change detection
+        dynamic_voxel_keys = {
+            key for key in voxel_key_set
+            if not self._is_static(key)
+        }
+
+        dynamic_voxel_points = np.array([
+            (np.array(key, dtype=np.float32) + 0.5) * self._resolution
+            for key in dynamic_voxel_keys
+        ], dtype=np.float32)
+
+        self._publish_live_voxel_points(
+            live_voxel_points,
+            self._target_frame,
+            msg.header.stamp
+        )
+
+        self._publish_dynamic_points(
+            dynamic_voxel_points,
+            self._target_frame,
+            msg.header.stamp
+        )
 
     def _transform_cloud_msg(self, cloud_msg: PointCloud2):
         source_frame = cloud_msg.header.frame_id
@@ -261,45 +296,45 @@ class VoxelChangeDetectionNode(LifecycleNode):
         xyz = np.stack([points['x'], points['y'], points['z']], axis=1)
         return xyz.astype(np.float32)
 
-    def _publish_dynamic_points(self, dynamic_points, frame_id: str, timestamp):
-
-        if self._dynamic_pub is None:
+    def _publish_points(self, pub, points, frame_id, timestamp):
+        if pub is None:
             return
-        
+
         header = Header()
         header.stamp = timestamp
         header.frame_id = frame_id 
 
-        # -----------------------------
-        # fields 
-        # -----------------------------
         fields = [
             PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
             PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
             PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
         ]
 
-        # -----------------------------
-        # data packing
-        # -----------------------------
-        data = []
-        for p in dynamic_points:
-            data.append(struct.pack('fff', float(p[0]), float(p[1]), float(p[2])))
-
-        data = b''.join(data)
+        data = b''.join([
+            struct.pack('fff', float(p[0]), float(p[1]), float(p[2]))
+            for p in points
+        ])
 
         msg = PointCloud2()
         msg.header = header
         msg.height = 1
-        msg.width = len(dynamic_points)
+        msg.width = len(points)
         msg.fields = fields
         msg.is_bigendian = False
         msg.point_step = 12
-        msg.row_step = 12 * len(dynamic_points)
+        msg.row_step = 12 * len(points)
         msg.is_dense = True
         msg.data = data
 
-        self._dynamic_pub.publish(msg)
+        pub.publish(msg)
+
+    def _publish_live_voxel_points(self, points, frame_id, timestamp):
+        self._publish_points(self._live_voxel_points_pub, points, frame_id, timestamp)
+
+
+    def _publish_dynamic_points(self, points, frame_id, timestamp):
+        self._publish_points(self._change_points_pub, points, frame_id, timestamp)
+
         
     # ==============================
     # UTILS

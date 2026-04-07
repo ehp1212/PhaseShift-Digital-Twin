@@ -39,7 +39,7 @@ namespace System.Utility
         {
             return new Vector3(
                 -(float)ros.Y,
-                0,
+                (float)ros.Z, 
                 (float)ros.X
             );
         }
