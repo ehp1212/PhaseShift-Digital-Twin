@@ -24,6 +24,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/TrackedObjectArray.msg"
 
   "msg/internal/NavState.msg"
+  "msg/VoxelChange.msg"
+  "msg/VoxelChangeArray.msg"
 
   "srv/SaveMap.srv"
   "srv/SaveVoxelMap.srv"

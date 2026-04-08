@@ -10,13 +10,6 @@ def generate_launch_description():
         output='screen'
     )
 
-    voxel_change_detection_node = Node(
-        package='phaseshift_perception_geometry',
-        executable='voxel_change_detection_node.py',
-        name='voxel_change_detection_node',
-        output='screen'
-    )
-
     voxel_perception_node = Node(
         package='phaseshift_perception_geometry',
         executable='voxel_perception_node',
@@ -26,6 +19,5 @@ def generate_launch_description():
 
     return LaunchDescription([
        voxel_costmap_node,
-    #    voxel_change_detection_node,
        voxel_perception_node
     ])

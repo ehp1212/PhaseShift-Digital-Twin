@@ -17,6 +17,8 @@ find_package(pcl_conversions REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
 
+find_package(phaseshift_interfaces REQUIRED)
+
 include_directories(${PCL_INCLUDE_DIRS})
 
 # -----------------------------
@@ -55,6 +57,7 @@ ament_target_dependencies(voxel_perception_node
   pcl_conversions
   tf2_ros
   tf2_sensor_msgs
+  phaseshift_interfaces
 )
 
 install(TARGETS
