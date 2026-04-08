@@ -308,148 +308,113 @@ void VoxelPerceptionNode::points_callback(
     auto t0 = std::chrono::steady_clock::now();
 
     // -----------------------------
-    // [1] end-to-end latency
+    // latency
     // -----------------------------
     rclcpp::Time now = get_clock()->now();
     double latency_ms = (now - msg->header.stamp).seconds() * 1000.0;
 
-    if (!change_detect_pub_ || !live_voxel_pub_ || !change_detect_info_pub_) {
-        return;
-    }
-
+    if (!change_detect_pub_ || !live_voxel_pub_ || !change_detect_info_pub_) return;
     if (!change_detect_pub_->is_activated() ||
         !live_voxel_pub_->is_activated() ||
-        !change_detect_info_pub_->is_activated()) {
-        return;
-    }
+        !change_detect_info_pub_->is_activated()) return;
 
     // -----------------------------
-    // [2] ROS -> PCL
+    // ROS → PCL
     // -----------------------------
     pcl::PointCloud<pcl::PointXYZI> input_cloud;
     pcl::fromROSMsg(*msg, input_cloud);
-
-    if (input_cloud.empty()) {
-        return;
-    }
+    if (input_cloud.empty()) return;
 
     // -----------------------------
-    // [3] distance filter (lidar frame)
+    // range filter
     // -----------------------------
-    pcl::PointCloud<pcl::PointXYZI> range_filtered_cloud;
-    range_filtered_cloud.reserve(input_cloud.points.size());
+    pcl::PointCloud<pcl::PointXYZI> range_filtered;
+    range_filtered.reserve(input_cloud.points.size());
 
-    const double max_range_sq = max_detection_range_ * max_detection_range_;
+    const float max_range_sq = max_detection_range_ * max_detection_range_;
 
-    for (const auto & pt : input_cloud.points) {
-        const double dist_sq =
-            static_cast<double>(pt.x) * pt.x +
-            static_cast<double>(pt.y) * pt.y +
-            static_cast<double>(pt.z) * pt.z;
-
-        if (dist_sq <= max_range_sq) {
-            range_filtered_cloud.points.push_back(pt);
-        }
+    for (const auto & pt : input_cloud.points)
+    {
+        float d2 = pt.x*pt.x + pt.y*pt.y + pt.z*pt.z;
+        if (d2 <= max_range_sq)
+            range_filtered.points.push_back(pt);
     }
 
-    if (range_filtered_cloud.empty()) {
-        return;
-    }
+    if (range_filtered.empty()) return;
 
-    auto t_ros_to_pcl_end = std::chrono::steady_clock::now();
+    auto t_range = std::chrono::steady_clock::now();
 
     // -----------------------------
-    // [4] lidar-frame voxelization
+    // lidar voxelization
     // -----------------------------
     std::unordered_set<VoxelKey, VoxelKeyHash> live_voxel_set;
-    live_voxel_set.reserve(range_filtered_cloud.points.size());
+    live_voxel_set.reserve(range_filtered.points.size());
 
-    for (const auto & pt : range_filtered_cloud.points) {
+    for (const auto & pt : range_filtered.points)
         live_voxel_set.insert(make_voxel_key(pt.x, pt.y, pt.z));
-    }
 
-    auto t_lidar_voxel_end = std::chrono::steady_clock::now();
+    auto t_lidar_voxel = std::chrono::steady_clock::now();
 
     // -----------------------------
-    // [5] TF lookup
+    // TF
     // -----------------------------
     geometry_msgs::msg::TransformStamped tf;
     try {
         tf = tf_buffer_->lookupTransform(
             target_frame_,
             msg->header.frame_id,
-            tf2::TimePointZero);
-    } catch (tf2::TransformException & ex) {
+            tf2::TimePointZero
+        );
+    }
+    catch (const tf2::TransformException & ex) {
         RCLCPP_WARN_THROTTLE(
-            get_logger(), *get_clock(), 2000,
-            "TF lookup failed: %s", ex.what());
+            get_logger(),
+            *get_clock(),
+            2000,
+            "TF lookup failed: %s",
+            ex.what()
+        );
         return;
     }
 
-    auto t_tf_lookup_end = std::chrono::steady_clock::now();
+    auto t_tf = std::chrono::steady_clock::now();
 
     // -----------------------------
-    // voxel-center transform only
-    //     lidar voxel -> map voxel
+    // map voxel
     // -----------------------------
     std::unordered_set<VoxelKey, VoxelKeyHash> map_voxel_set;
-    std::unordered_set<VoxelKey, VoxelKeyHash> changed_voxel_set;
     map_voxel_set.reserve(live_voxel_set.size());
-    changed_voxel_set.reserve(live_voxel_set.size());
 
-    geometry_msgs::msg::PointStamped p_in;
-    geometry_msgs::msg::PointStamped p_out;
+    geometry_msgs::msg::PointStamped p_in, p_out;
 
-    for (const auto & key : live_voxel_set) {
-        // voxel center in lidar frame
-        p_in.point.x = (static_cast<float>(key.x) + 0.5f) * voxel_resolution_;
-        p_in.point.y = (static_cast<float>(key.y) + 0.5f) * voxel_resolution_;
-        p_in.point.z = (static_cast<float>(key.z) + 0.5f) * voxel_resolution_;
+    for (const auto & key : live_voxel_set)
+    {
+        p_in.point.x = (key.x + 0.5f) * voxel_resolution_;
+        p_in.point.y = (key.y + 0.5f) * voxel_resolution_;
+        p_in.point.z = (key.z + 0.5f) * voxel_resolution_;
 
-        // transform point
         tf2::doTransform(p_in, p_out, tf);
 
-        // remap to map-frame voxel
-        VoxelKey map_key = make_voxel_key(
-            static_cast<float>(p_out.point.x),
-            static_cast<float>(p_out.point.y),
-            static_cast<float>(p_out.point.z));
-
-        map_voxel_set.insert(map_key);
+        map_voxel_set.insert(make_voxel_key(
+            p_out.point.x,
+            p_out.point.y,
+            p_out.point.z
+        ));
     }
 
-    // static confidence cache
-    std::unordered_map<VoxelKey, float, VoxelKeyHash> static_conf_cache;
-    static_conf_cache.reserve(map_voxel_set.size());
-
+    // -----------------------------
+    // persistence update
+    // -----------------------------
     for (const auto & key : map_voxel_set)
-    {
-        auto it = static_confidence_map_.find(key);
-
-        float static_conf = (it != static_confidence_map_.end())
-            ? it->second
-            : 0.0f;
-
-        static_conf_cache[key] = static_conf;
-
-        if (static_conf < static_confidence_threshold_) {
-            changed_voxel_set.insert(key);
-        }
-    }
-
-    auto t_map_voxel_end = std::chrono::steady_clock::now();
-
-    // -----------------------------
-    // temporal persistence update
-    // -----------------------------
-    for (const auto & key : map_voxel_set) {
         voxel_persistence_[key]++;
-    }
 
-    for (auto it = voxel_persistence_.begin(); it != voxel_persistence_.end();) {
-        if (map_voxel_set.find(it->first) == map_voxel_set.end()) {
+    for (auto it = voxel_persistence_.begin(); it != voxel_persistence_.end();)
+    {
+        if (map_voxel_set.find(it->first) == map_voxel_set.end())
+        {
             it->second--;
-            if (it->second <= 0) {
+            if (it->second <= 0)
+            {
                 it = voxel_persistence_.erase(it);
                 continue;
             }
@@ -457,179 +422,184 @@ void VoxelPerceptionNode::points_callback(
         ++it;
     }
 
-    // neighbor count cache
-    std::unordered_map<VoxelKey, uint16_t, VoxelKeyHash> neighbor_count_cache;
-    neighbor_count_cache.reserve(map_voxel_set.size());
+    // -----------------------------
+    // RID 
+    // -----------------------------
+    int min_x = INT_MAX, min_y = INT_MAX, min_z = INT_MAX;
+    int max_x = INT_MIN, max_y = INT_MIN, max_z = INT_MIN;
 
-    for (const auto & key : map_voxel_set) {
-        neighbor_count_cache[key] = count_neighbors(key, map_voxel_set);
+    for (const auto & key : map_voxel_set)
+    {
+        min_x = std::min(min_x, key.x);
+        min_y = std::min(min_y, key.y);
+        min_z = std::min(min_z, key.z);
+
+        max_x = std::max(max_x, key.x);
+        max_y = std::max(max_y, key.y);
+        max_z = std::max(max_z, key.z);
     }
 
-    // filtered changed voxels
-    std::unordered_set<VoxelKey, VoxelKeyHash> filtered_changed_voxel_set;
-    filtered_changed_voxel_set.reserve(changed_voxel_set.size());
+    int size_x = max_x - min_x + 1;
+    int size_y = max_y - min_y + 1;
+    int size_z = max_z - min_z + 1;
 
-    for (const auto & key : changed_voxel_set) {
-        auto it = voxel_persistence_.find(key);
-        if (it == voxel_persistence_.end()) {
+    std::vector<uint8_t> grid(size_x * size_y * size_z, 0);
+
+    auto idx = [&](int x, int y, int z) -> int {
+        return (x - min_x) +
+               size_x * ((y - min_y) +
+               size_y * (z - min_z));
+    };
+
+    for (const auto & key : map_voxel_set)
+        grid[idx(key.x, key.y, key.z)] = 1;
+
+    // -----------------------------
+    // feature vector
+    // -----------------------------
+    struct VoxelFeature {
+        VoxelKey key;
+        float static_conf;
+        uint16_t persistence;
+        uint8_t neighbor;
+    };
+
+    std::vector<VoxelFeature> features;
+    features.reserve(map_voxel_set.size());
+
+    for (const auto & key : map_voxel_set)
+    {
+        VoxelFeature f;
+        f.key = key;
+
+        auto it_conf = static_confidence_map_.find(key);
+        f.static_conf = (it_conf != static_confidence_map_.end()) ? it_conf->second : 0.0f;
+
+        auto it_p = voxel_persistence_.find(key);
+        f.persistence = (it_p != voxel_persistence_.end()) ? it_p->second : 0;
+
+        f.neighbor = 0;
+
+        features.push_back(f);
+    }
+
+    auto t_map_voxel = std::chrono::steady_clock::now();
+
+    // -----------------------------
+    // neighbor 계산 (grid)
+    // -----------------------------
+    for (auto & f : features)
+    {
+        int x = f.key.x;
+        int y = f.key.y;
+        int z = f.key.z;
+
+        for (int dx=-1; dx<=1; dx++)
+        for (int dy=-1; dy<=1; dy++)
+        for (int dz=-1; dz<=1; dz++)
+        {
+            if (dx==0 && dy==0 && dz==0) continue;
+
+            int nx = x + dx;
+            int ny = y + dy;
+            int nz = z + dz;
+
+            if (nx < min_x || nx > max_x ||
+                ny < min_y || ny > max_y ||
+                nz < min_z || nz > max_z)
+                continue;
+
+            if (grid[idx(nx, ny, nz)])
+                f.neighbor++;
+        }
+    }
+
+    // -----------------------------
+    // filtering
+    // -----------------------------
+    std::unordered_set<VoxelKey, VoxelKeyHash> filtered_changed;
+    filtered_changed.reserve(features.size());
+
+    for (const auto & f : features)
+    {
+        if (f.static_conf >= static_confidence_threshold_) continue;
+        if (f.neighbor == 0) continue;
+        if (f.persistence < persistence_threshold_) continue;
+
+        filtered_changed.insert(f.key);
+    }
+
+    auto t_filter = std::chrono::steady_clock::now();
+
+    // -----------------------------
+    // publish cloud
+    // -----------------------------
+    pcl::PointCloud<pcl::PointXYZI> live_cloud;
+    pcl::PointCloud<pcl::PointXYZI> changed_cloud;
+
+    for (const auto & f : features)
+        live_cloud.points.push_back(voxel_key_to_point(f.key, 1.0f));
+
+    for (const auto & f : features)
+    {
+        if (filtered_changed.find(f.key) == filtered_changed.end())
             continue;
-        }
 
-        if (neighbor_count_cache[key] == 0) {
-            continue;
-        }
+        float score =
+            0.5f * (float)f.persistence / persistence_threshold_ +
+            0.3f * (f.neighbor / 26.0f) +
+            0.2f * (1.0f - f.static_conf);
 
-        if (it->second >= persistence_threshold_) {
-            filtered_changed_voxel_set.insert(key);
-        }
+        changed_cloud.points.push_back(voxel_key_to_point(f.key, score));
     }
 
-    auto t_filter_end = std::chrono::steady_clock::now();
+    sensor_msgs::msg::PointCloud2 live_msg, changed_msg;
+    pcl::toROSMsg(live_cloud, live_msg);
+    pcl::toROSMsg(changed_cloud, changed_msg);
 
-    // -----------------------------
-    // [8] feature cache for changed voxels
-    // -----------------------------
-    std::unordered_map<VoxelKey, ChangedFeature, VoxelKeyHash> changed_feature_map;
-    changed_feature_map.reserve(filtered_changed_voxel_set.size());
-
-    for (const auto & key : filtered_changed_voxel_set) {
-        float static_conf = static_conf_cache[key];
-
-        auto it = voxel_persistence_.find(key);
-        uint16_t persistence =
-            (it != voxel_persistence_.end()) ? static_cast<uint16_t>(it->second) : 0;
-
-        uint16_t neighbor_count = neighbor_count_cache[key];
-
-        float temporal_stability =
-            std::min(1.0f, static_cast<float>(persistence) /
-                              static_cast<float>(persistence_threshold_));
-
-        float dynamic_score =
-            compute_dynamic_score(static_conf, persistence, neighbor_count);
-
-        changed_feature_map[key] = ChangedFeature{
-            static_conf,
-            persistence,
-            neighbor_count,
-            temporal_stability,
-            dynamic_score
-        };
-    }
-
-    // -----------------------------
-    // custom feature msg
-    // -----------------------------
-    phaseshift_interfaces::msg::VoxelChangeArray info_msg;
-    info_msg.header.frame_id = target_frame_;
-    info_msg.header.stamp = msg->header.stamp;
-    info_msg.voxels.reserve(filtered_changed_voxel_set.size());
-
-    for (const auto & key : filtered_changed_voxel_set) {
-        const auto & feature = changed_feature_map[key];
-        auto pt = voxel_key_to_point(key);
-
-        phaseshift_interfaces::msg::VoxelChange voxel;
-        voxel.position.x = pt.x;
-        voxel.position.y = pt.y;
-        voxel.position.z = pt.z;
-        voxel.static_confidence = feature.static_confidence;
-        voxel.persistence = feature.persistence;
-        voxel.neighbor_count = feature.neighbor_count;
-        voxel.temporal_stability = feature.temporal_stability;
-        voxel.dynamic_score = feature.dynamic_score;
-
-        info_msg.voxels.push_back(voxel);
-    }
-
-    auto t_info_msg_end = std::chrono::steady_clock::now();
-
-    // -----------------------------
-    // build point clouds
-    //      live: simple intensity=1.0
-    //      changed: intensity=dynamic_score
-    // -----------------------------
-    pcl::PointCloud<pcl::PointXYZI> live_voxel_cloud;
-    pcl::PointCloud<pcl::PointXYZI> changed_voxel_cloud;
-    live_voxel_cloud.reserve(map_voxel_set.size());
-    changed_voxel_cloud.reserve(filtered_changed_voxel_set.size());
-
-    for (const auto & key : map_voxel_set) {
-        live_voxel_cloud.points.push_back(voxel_key_to_point(key, 1.0f));
-    }
-
-    for (const auto & key : filtered_changed_voxel_set) {
-        const auto & feature = changed_feature_map[key];
-        changed_voxel_cloud.points.push_back(
-            voxel_key_to_point(key, feature.dynamic_score));
-    }
-
-    live_voxel_cloud.width = static_cast<uint32_t>(live_voxel_cloud.points.size());
-    live_voxel_cloud.height = 1;
-    live_voxel_cloud.is_dense = true;
-
-    changed_voxel_cloud.width = static_cast<uint32_t>(changed_voxel_cloud.points.size());
-    changed_voxel_cloud.height = 1;
-    changed_voxel_cloud.is_dense = true;
-
-    sensor_msgs::msg::PointCloud2 live_msg;
-    sensor_msgs::msg::PointCloud2 changed_msg;
-
-    pcl::toROSMsg(live_voxel_cloud, live_msg);
-    pcl::toROSMsg(changed_voxel_cloud, changed_msg);
+    live_msg.header = msg->header;
+    changed_msg.header = msg->header;
 
     live_msg.header.frame_id = target_frame_;
     changed_msg.header.frame_id = target_frame_;
-    live_msg.header.stamp = msg->header.stamp;
-    changed_msg.header.stamp = msg->header.stamp;
 
-    auto t_cloud_build_end = std::chrono::steady_clock::now();
-
-    // -----------------------------
-    // [11] publish
-    // -----------------------------
     live_voxel_pub_->publish(live_msg);
     change_detect_pub_->publish(changed_msg);
-    change_detect_info_pub_->publish(info_msg);
 
-    auto t_publish_end = std::chrono::steady_clock::now();
+    auto t_end = std::chrono::steady_clock::now();
 
     // -----------------------------
-    // [12] timing logs
+    // timing log
     // -----------------------------
-    double ros_to_pcl_ms =
-        std::chrono::duration<double, std::milli>(t_ros_to_pcl_end - t0).count();
+    double total =
+        std::chrono::duration<double, std::milli>(t_end - t0).count();
+
+    double range_ms =
+        std::chrono::duration<double, std::milli>(t_range - t0).count();
+
     double lidar_voxel_ms =
-        std::chrono::duration<double, std::milli>(t_lidar_voxel_end - t_ros_to_pcl_end).count();
+        std::chrono::duration<double, std::milli>(t_lidar_voxel - t_range).count();
+
     double tf_ms =
-        std::chrono::duration<double, std::milli>(t_tf_lookup_end - t_lidar_voxel_end).count();
+        std::chrono::duration<double, std::milli>(t_tf - t_lidar_voxel).count();
+
     double map_voxel_ms =
-        std::chrono::duration<double, std::milli>(t_map_voxel_end - t_tf_lookup_end).count();
+        std::chrono::duration<double, std::milli>(t_map_voxel - t_tf).count();
+
     double filter_ms =
-        std::chrono::duration<double, std::milli>(t_filter_end - t_map_voxel_end).count();
-    double info_msg_ms =
-        std::chrono::duration<double, std::milli>(t_info_msg_end - t_filter_end).count();
-    double cloud_build_ms =
-        std::chrono::duration<double, std::milli>(t_cloud_build_end - t_info_msg_end).count();
-    double publish_ms =
-        std::chrono::duration<double, std::milli>(t_publish_end - t_cloud_build_end).count();
-    double total_ms =
-        std::chrono::duration<double, std::milli>(t_publish_end - t0).count();
+        std::chrono::duration<double, std::milli>(t_filter - t_map_voxel).count();
 
     RCLCPP_INFO_THROTTLE(
         get_logger(),
         *get_clock(),
         2000,
-        "Timing | Total=%.2f | ROS+Range=%.2f | LidarVoxel=%.2f | TF=%.2f | MapVoxel=%.2f | Filter=%.2f | InfoMsg=%.2f | CloudBuild=%.2f | Publish=%.2f | Latency=%.2f",
-        total_ms,
-        ros_to_pcl_ms,
+        "🔥 Total=%.2f ms | Latency=%.2f | Range=%.2f | LidarVoxel=%.2f | TF=%.2f | MapVoxel=%.2f | Filter=%.2f",
+        total,
+        latency_ms,
+        range_ms,
         lidar_voxel_ms,
         tf_ms,
         map_voxel_ms,
-        filter_ms,
-        info_msg_ms,
-        cloud_build_ms,
-        publish_ms,
-        latency_ms
+        filter_ms
     );
 }
