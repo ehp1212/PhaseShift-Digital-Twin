@@ -123,7 +123,7 @@ class OrchestratorNode(Node):
         # ------------------------------
         # PERCEPTION GEOMETRY LAYER
         # ------------------------------
-        self.voxel_costmap_client = self.create_client(
+        self._voxel_costmap_client = self.create_client(
             ChangeState,
             "/voxel_costmap_node/change_state"
         )
@@ -133,14 +133,14 @@ class OrchestratorNode(Node):
             "/voxel_costmap_node/set_parameters"
         )
 
-        self.voxel_change_detection_client = self.create_client(
+        self._voxel_change_detection_client = self.create_client(
             ChangeState,
-            "/voxel_change_detection_node/change_state"
+            "/voxel_perception_node/change_state"
         )
 
         self._voxel_change_detection_set_param_client = self.create_client(
             SetParameters,
-            "/voxel_change_detection_node/set_parameters"
+            "/voxel_perception_node/set_parameters"
         )
 
         # ------------------------------
@@ -609,6 +609,7 @@ class OrchestratorNode(Node):
     # ======================================================
 
     def _activate_voxel_costmap_node(self, voxel_map_path: str):
+
         try:
             while not self._voxel_costmap_set_param_client.wait_for_service(timeout_sec=1.0):
                 self.get_logger().warn("Waiting for voxel_costmap_node")
@@ -618,6 +619,7 @@ class OrchestratorNode(Node):
                 Parameter.Type.STRING,
                 voxel_map_path
             )
+
 
             param_req = SetParameters.Request()
             param_req.parameters = [params.to_parameter_msg()]
@@ -644,7 +646,7 @@ class OrchestratorNode(Node):
 
         self.get_logger().info("Configuring Voxel Costmap Node...")
 
-        future = self.voxel_costmap_client.call_async(req)
+        future = self._voxel_costmap_client.call_async(req)
         future.add_done_callback(self._on_voxel_costmap_node_configured)
 
     def _on_voxel_costmap_node_configured(self, future):
@@ -663,7 +665,7 @@ class OrchestratorNode(Node):
 
         self.get_logger().info("Activating Voxel Costmap Node...")
 
-        future = self.voxel_costmap_client.call_async(req)
+        future = self._voxel_costmap_client.call_async(req)
         future.add_done_callback(self._on_voxel_costmap_node_activated)
 
     def _on_voxel_costmap_node_activated(self, future):
@@ -682,6 +684,7 @@ class OrchestratorNode(Node):
 
     def _activate_change_detection_node(self, voxel_map_path: str):
         try:
+
             while not self._voxel_change_detection_set_param_client.wait_for_service(timeout_sec=1.0):
                 self.get_logger().warn("Waiting for voxel_change_detection_node")
 
@@ -693,6 +696,7 @@ class OrchestratorNode(Node):
 
             param_req = SetParameters.Request()
             param_req.parameters = [params.to_parameter_msg()]
+
             future = self._voxel_change_detection_set_param_client.call_async(param_req)
             future.add_done_callback(self._on_set_voxel_map_change_detection)
 
@@ -716,7 +720,7 @@ class OrchestratorNode(Node):
 
         self.get_logger().info("Configuring Change Detection Node...")
 
-        future = self.voxel_change_detection_client.call_async(req)
+        future = self._voxel_change_detection_client.call_async(req)
         future.add_done_callback(self._on_change_detection_configured)
 
     def _on_change_detection_configured(self, future):
@@ -735,7 +739,7 @@ class OrchestratorNode(Node):
 
         self.get_logger().info("Activating Change Detection Node...")
 
-        future = self.voxel_change_detection_client.call_async(req)
+        future = self._voxel_change_detection_client.call_async(req)
         future.add_done_callback(self._on_change_detection_activated)
 
     def _on_change_detection_activated(self, future):

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import rclpy
 from rclpy.time import Time
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
@@ -50,6 +52,8 @@ class VoxelChangeDetectionNode(LifecycleNode):
         self._sub = None
         self._change_points_pub = None
         self._live_voxel_points_pub = None
+
+        self._prev_voxel_keys = None
 
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
@@ -200,6 +204,10 @@ class VoxelChangeDetectionNode(LifecycleNode):
             self._map_pub.publish(self._map_msg)
 
     def _points_callback(self, msg):
+
+        start_time = self.get_clock().now()
+
+
         transformed_msg = self._transform_cloud_msg(msg)
         if transformed_msg is None:
             return
@@ -207,7 +215,36 @@ class VoxelChangeDetectionNode(LifecycleNode):
         points = self._pointcloud2_to_numpy(transformed_msg)
         if points.size == 0:
             return
-        
+    
+        # # -----------------------------
+        # # 1. distance filter 
+        # # -----------------------------
+        # dist_sq = np.sum(points**2, axis=1)
+        # mask_dist = dist_sq < (3.0 * 3.0)
+        # points = points[mask_dist]
+
+        # if points.size == 0:
+        #     return
+
+        # -----------------------------
+        # 2. FOV filter 
+        # -----------------------------
+        # xy = points[:, :2]
+
+        # norm = np.linalg.norm(xy, axis=1, keepdims=True) + 1e-6
+        # dir_vec = xy / norm
+
+        # forward = np.array([1.0, 0.0])  # robot forward (x축)
+
+        # cos_theta = np.sum(dir_vec * forward, axis=1)
+
+        # mask_fov = cos_theta > 0.5  # 120도
+
+        # points = points[mask_fov]
+
+        # if points.size == 0:
+        #     return
+
         # voxelization
         indices = np.floor(points / self._resolution).astype(np.int32)
 
@@ -219,10 +256,26 @@ class VoxelChangeDetectionNode(LifecycleNode):
         # remove duplicates
         voxel_key_set = set(voxel_keys)
 
+        prev_keys = getattr(self, "_prev_voxel_keys", set())
+
+        if not prev_keys:
+            stable_keys = voxel_key_set
+        else:
+            stable_keys = voxel_key_set & prev_keys
+
+        # update prev
+        self._prev_voxel_keys = voxel_key_set
+
+        # neighbor filter
+        filtered_keys = {
+                key for key in stable_keys
+                if self.has_neighbor(key, stable_keys)
+            }
+
         # live voxel
         live_voxel_points = np.array([
             (np.array(key, dtype=np.float32) + 0.5) * self._resolution
-            for key in voxel_key_set
+            for key in filtered_keys
         ], dtype=np.float32)
 
         # change detection
@@ -247,6 +300,11 @@ class VoxelChangeDetectionNode(LifecycleNode):
             self._target_frame,
             msg.header.stamp
         )
+
+        end_time = self.get_clock().now()
+        proc_time = (end_time - start_time).nanoseconds * 1e-6
+
+        self.get_logger().info(f"[Processing] {proc_time:.2f} ms")
 
     def _transform_cloud_msg(self, cloud_msg: PointCloud2):
         source_frame = cloud_msg.header.frame_id
@@ -371,6 +429,21 @@ class VoxelChangeDetectionNode(LifecycleNode):
 
         return False      # possible dynamic
     
+    # neighbour filter
+    def has_neighbor(self, key, voxel_set):
+        x, y, z = key
+
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                for dz in [-1, 0, 1]:
+                    if dx == 0 and dy == 0 and dz == 0:
+                        continue
+
+                    if (x+dx, y+dy, z+dz) in voxel_set:
+                        return True
+
+        return False
+    
 def main():
     rclpy.init()
     node = VoxelChangeDetectionNode()
@@ -384,3 +457,6 @@ def main():
     finally:
         executor.shutdown()
         node.destroy_node()
+
+if __name__ == '__main__':
+    main()
