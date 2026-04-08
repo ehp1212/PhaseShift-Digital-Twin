@@ -25,10 +25,38 @@
 // Map
 #include "phaseshift_interfaces/srv/save_voxel_map.hpp"
 
-// Motion-aware, confidence-driven voxel mapping pipeline 
-// for stable spatial representation in dynamic environments
-
-// LiDAR → Preprocessing → Motion Gate → Voxel Accumulation → Confidence Filtering → Voxel Map
+/**
+ * @brief Motion-aware Confidence-driven Voxel Mapping
+ *
+ * This module builds a stable voxel-based spatial representation
+ * from raw LiDAR input in dynamic environments.
+ *
+ * Pipeline:
+ * LiDAR → Preprocessing → Frame Accumulation → Temporal Filtering
+ * → Confidence Estimation → Spatial Consistency Filtering → Voxel Map
+ *
+ * Core Concepts:
+ * - Voxel-based spatial abstraction (3D discretization)
+ * - Temporal consistency via frame_hits accumulation
+ * - Confidence modeling from multi-frame observations
+ * - Noise suppression using neighbor validation
+ *
+ * Key Features:
+ * - Motion-robust voxel accumulation (multi-frame integration)
+ * - Confidence-driven filtering for stable map extraction
+ * - Spatial consistency check via neighborhood validation
+ * - Efficient voxel hashing using unordered_map
+ *
+ * Design Philosophy:
+ * - Convert sparse LiDAR data into stable volumetric representation
+ * - Suppress dynamic noise through temporal persistence
+ * - Provide reliable geometric prior for downstream modules (Perception / Navigation)
+ *
+ * Output:
+ * - Filtered voxel cloud (PointXYZI)
+ *   - position: voxel centroid
+ *   - intensity: confidence score
+ */
 
 class VoxelMapNode : public rclcpp_lifecycle::LifecycleNode
 {

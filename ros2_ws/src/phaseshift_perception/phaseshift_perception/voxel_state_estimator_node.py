@@ -1,4 +1,3 @@
-import struct
 import numpy as np
 
 import rclpy
@@ -6,62 +5,50 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.lifecycle import LifecycleNode, TransitionCallbackReturn
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
-from sensor_msgs.msg import PointCloud2
 from phaseshift_interfaces.msg import (
     DetectedObjectArray,
     EstimatedObject,
     EstimatedObjectArray,
+    VoxelChangeArray,
 )
-
 
 class VoxelStateEstimatorNode(LifecycleNode):
     """
-    Role:
-    - Augment semantic detections with voxel-based geometric state
+    This node enriches semantic detections using voxel-level geometric features.
 
     Pipeline:
-    3D Objects (from projection)
-        +
-    Voxel change points
-        ↓
-    State estimation (geometry-based interpretation)
-        ↓
-    EstimatedObject
+    1. 3D object detections (from perception pipeline)
+    2. VoxelChange feature input (dynamic score, temporal stability, confidence)
+    3. Local voxel aggregation around each object
+    4. Object-level state estimation (dynamic likelihood, size, density)
 
-    Key Idea:
-    - Interpret local spatial change around each object
-    - Convert raw geometry into meaningful state (dynamic, confidence, size)
+    Key Features:
+    - Object-centric voxel feature aggregation
+    - Fusion of geometry (voxel) and semantics (detection)
+    - Robust dynamic estimation using temporal and spatial signals
 
-    Notes:
-    - This node does NOT track over time
-    - This node does NOT perform decision making
-    - It provides enriched perception for downstream modules
+    Design Philosophy:
+    - Keep ROS2 as the authority for perception reasoning
+    - Provide feature-rich outputs for downstream tracking and navigation
+    - Separate geometric evidence from temporal state classification
+
+    Output:
+    - EstimatedObject with aggregated voxel features
     """
 
-    MIN_DYNAMIC_POINTS = 10
     RADIUS = 1.0
-    CONFIDENCE_SCALE = 20.0
     DENSITY_THRESHOLD = 2.0
 
     def __init__(self):
         super().__init__("voxel_state_estimator_node")
 
-        # -----------------------------
-        # Internal cache
-        # -----------------------------
-        self._change_points_np = None   # Nx3 float32 array
+        self._change_voxels = None
         self._last_header = None
 
-        # -----------------------------
-        # ROS interfaces
-        # -----------------------------
         self._obj_sub = None
-        self._change_points_sub = None
+        self._change_info_sub = None
         self._estimated_objects_pub = None
 
-        # -----------------------------
-        # QoS
-        # -----------------------------
         self._qos_sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
@@ -80,7 +67,6 @@ class VoxelStateEstimatorNode(LifecycleNode):
     # Lifecycle
     # -----------------------------
     def on_configure(self, state):
-        self.get_logger().info("[Lifecycle] Configuring VoxelStateEstimatorNode...")
 
         try:
             self._obj_sub = self.create_subscription(
@@ -90,10 +76,10 @@ class VoxelStateEstimatorNode(LifecycleNode):
                 self._qos_output,
             )
 
-            self._change_points_sub = self.create_subscription(
-                PointCloud2,
-                "/perception_geometry/change_points",
-                self._on_change_points_sub_callback,
+            self._change_info_sub = self.create_subscription(
+                VoxelChangeArray,
+                "/perception_geometry/change_points_info",
+                self._on_change_info_sub_callback,
                 self._qos_sensor,
             )
 
@@ -103,55 +89,54 @@ class VoxelStateEstimatorNode(LifecycleNode):
                 self._qos_output,
             )
 
-            self.get_logger().info("[Lifecycle] Configured successfully")
             return TransitionCallbackReturn.SUCCESS
 
         except Exception as e:
-            self.get_logger().error(f"[Lifecycle] Configure failed: {e}")
+            self.get_logger().error(f"[Configure failed] {e}")
             return TransitionCallbackReturn.FAILURE
 
     def on_activate(self, state):
-        self.get_logger().info("[Lifecycle] Activating VoxelStateEstimatorNode...")
         return TransitionCallbackReturn.SUCCESS
 
     def on_deactivate(self, state):
-        self.get_logger().info("[Lifecycle] Deactivating VoxelStateEstimatorNode...")
         return TransitionCallbackReturn.SUCCESS
 
     def on_cleanup(self, state):
-        self.get_logger().info("[Lifecycle] Cleaning up VoxelStateEstimatorNode...")
 
         try:
-            if self._obj_sub is not None:
+            if self._obj_sub:
                 self.destroy_subscription(self._obj_sub)
                 self._obj_sub = None
 
-            if self._change_points_sub is not None:
-                self.destroy_subscription(self._change_points_sub)
-                self._change_points_sub = None
+            if self._change_info_sub:
+                self.destroy_subscription(self._change_info_sub)
+                self._change_info_sub = None
 
-            if self._estimated_objects_pub is not None:
+            if self._estimated_objects_pub:
                 self.destroy_publisher(self._estimated_objects_pub)
                 self._estimated_objects_pub = None
 
-            self._change_points_np = None
-            self._last_header = None
+            self._change_voxels = None
 
-            self.get_logger().info("[Lifecycle] Cleanup completed")
             return TransitionCallbackReturn.SUCCESS
 
         except Exception as e:
-            self.get_logger().error(f"[Lifecycle] Cleanup failed: {e}")
+            self.get_logger().error(f"[Cleanup failed] {e}")
             return TransitionCallbackReturn.FAILURE
 
     # -----------------------------
     # Callbacks
     # -----------------------------
+    def _on_change_info_sub_callback(self, msg: VoxelChangeArray):
+        self._last_header = msg.header
+        self._change_voxels = msg.voxels
+
     def _on_object_sub_callback(self, msg: DetectedObjectArray):
+
         if self._estimated_objects_pub is None:
             return
 
-        if self._change_points_np is None:
+        if self._change_voxels is None:
             return
 
         output = EstimatedObjectArray()
@@ -160,26 +145,22 @@ class VoxelStateEstimatorNode(LifecycleNode):
         for obj in msg.objects:
             center = obj.pose.position
 
-            # get change points from voxel map
-            nearby_points = self._query_points_radius(
-                center=center,
-                radius=self.RADIUS,
-            )
+            nearby_voxels = self._query_voxels_radius(center)
 
-            # estimate states
-            state = self._estimate_state(center, nearby_points)
+            state = self._estimate_state(center, nearby_voxels)
 
             estimated = EstimatedObject()
 
-            # Base semantic detection
+            # -----------------------------
+            # semantic base
+            # -----------------------------
             estimated.class_id = obj.class_id
             estimated.confidence = obj.confidence
             estimated.pose = obj.pose
 
-            # Voxel-based state
             estimated.is_dynamic = state["is_dynamic"]
             estimated.motion_confidence = state["motion_confidence"]
-            estimated.dynamic_point_count = float(state["num_points"])
+            estimated.dynamic_point_count = float(state["num_voxels"])
             estimated.density = float(state["density"])
             estimated.estimated_distance = state["distance"]
 
@@ -187,110 +168,130 @@ class VoxelStateEstimatorNode(LifecycleNode):
             estimated.estimated_size.y = float(state["size"][1])
             estimated.estimated_size.z = float(state["size"][2])
 
+            # -----------------------------
+            # voxel info feature
+            # -----------------------------
+            estimated.support_voxel_count = float(state["num_voxels"])
+            estimated.mean_dynamic_score = state["mean_dynamic_score"]
+            estimated.max_dynamic_score = state["max_dynamic_score"]
+            estimated.mean_temporal_stability = state["mean_temporal_stability"]
+            estimated.mean_static_confidence = state["mean_static_confidence"]
+
             output.objects.append(estimated)
 
         self._estimated_objects_pub.publish(output)
 
-    def _on_change_points_sub_callback(self, msg: PointCloud2):
-        self._last_header = msg.header
-        self._change_points_np = self._pointcloud2_to_xyz_array(msg)
-
     # -----------------------------
     # Internal
     # -----------------------------
-    def _pointcloud2_to_xyz_array(self, cloud_msg: PointCloud2) -> np.ndarray:
-        """
-        Convert PointCloud2 -> Nx3 numpy array.
+    def _query_voxels_radius(self, center):
 
-        Assumption:
-        - x, y, z are the first 3 float32 fields in the point step layout.
+        if not self._change_voxels:
+            return []
 
-        For future optimization:
-        - replace with numpy.frombuffer or structured dtype parsing.
-        """
-        points = []
+        cx, cy, cz = center.x, center.y, center.z
+        nearby = []
 
-        for offset in range(0, len(cloud_msg.data), cloud_msg.point_step):
-            x, y, z = struct.unpack_from("fff", cloud_msg.data, offset=offset)
-            points.append([x, y, z])
+        for v in self._change_voxels:
+            dx = v.position.x - cx
+            dy = v.position.y - cy
+            dz = v.position.z - cz
 
-        if not points:
-            return np.empty((0, 3), dtype=np.float32)
+            if dx*dx + dy*dy + dz*dz < self.RADIUS * self.RADIUS:
+                nearby.append(v)
 
-        return np.array(points, dtype=np.float32)
+        return nearby
 
-    def _query_points_radius(self, center, radius: float) -> np.ndarray:
-        """
-        Select voxel change points within a local radius of the object.
+    def _estimate_state(self, center, nearby_voxels):
 
-        Purpose:
-        - Associate spatial change with specific object instance
-        - Convert global voxel map into local object-centric view
-        """
+        num_voxels = len(nearby_voxels)
 
-        if self._change_points_np is None or len(self._change_points_np) == 0:
-            return np.empty((0, 3), dtype=np.float32)
+        volume = (self.RADIUS * 2.0) ** 3
+        density = num_voxels / volume if volume > 0 else 0.0
 
-        center_np = np.array([center.x, center.y, center.z], dtype=np.float32)
+        if num_voxels == 0:
+            return {
+                "num_voxels": 0,
+                "density": 0.0,
+                "is_dynamic": False,
+                "motion_confidence": 0.0,
+                "distance": 0.0,
+                "size": np.array([0.0, 0.0, 0.0], dtype=np.float32),
 
-        diff = self._change_points_np - center_np
-        dist = np.linalg.norm(diff, axis=1)
+                "mean_dynamic_score": 0.0,
+                "max_dynamic_score": 0.0,
+                "mean_temporal_stability": 0.0,
+                "mean_static_confidence": 0.0,
+            }
 
-        mask = dist < radius
-        return self._change_points_np[mask]
+        positions = []
+        dynamic_scores = []
+        temporal_stabilities = []
+        static_confidences = []
 
-    def _estimate_state(self, center, nearby_points: np.ndarray) -> dict:
-        """
-        Estimate voxel-based object state.
+        cx, cy, cz = center.x, center.y, center.z
 
-        Outputs:
-        - change intensity (num_points)
-        - dynamic likelihood (is_dynamic)
-        - confidence (normalized density)
-        - spatial extent (size)
+        for v in nearby_voxels:
+            px = v.position.x
+            py = v.position.y
+            pz = v.position.z
 
-        Semantic note:
-        - is_dynamic here means "significant change observed"
-          rather than physically verified motion.
-        """
-        num_points = len(nearby_points)
+            positions.append([px, py, pz])
+            dynamic_scores.append(v.dynamic_score)
+            temporal_stabilities.append(v.temporal_stability)
+            static_confidences.append(v.static_confidence)
 
-        # density
-        volume = (self.RADIUS * 2) ** 3
-        density = num_points / volume
+        positions = np.array(positions, dtype=np.float32)
 
-        is_dynamic = density > self.DENSITY_THRESHOLD
+        # -----------------------------
+        # aggregation
+        # -----------------------------
+        mean_dynamic_score = float(np.mean(dynamic_scores))
+        max_dynamic_score = float(np.max(dynamic_scores))
+        mean_temporal = float(np.mean(temporal_stabilities))
+        mean_static_conf = float(np.mean(static_confidences))
 
-        # normalized confidence from local change density
-        motion_confidence = float(
-            min(1.0, num_points / self.CONFIDENCE_SCALE)
+        # -----------------------------
+        # dynamic
+        # -----------------------------
+        is_dynamic = (
+            mean_dynamic_score > 0.4 and
+            mean_temporal > 0.3 and
+            num_voxels >= 3
         )
 
-        # distance estimate
-        # This is more meaningful than global-origin distance for this node.
-        if num_points > 0:
-            center_np = np.array([center.x, center.y, center.z], dtype=np.float32)
-            local_diff = nearby_points - center_np
-            distances = np.linalg.norm(local_diff, axis=1)
-            estimated_distance = float(np.mean(distances))
-        else:
-            estimated_distance = 0.0
+        motion_confidence = min(
+            1.0,
+            0.7 * mean_dynamic_score +
+            0.3 * mean_temporal
+        )
 
-        # axis-aligned bounding box size
-        if num_points > 0:
-            min_vals = np.min(nearby_points, axis=0)
-            max_vals = np.max(nearby_points, axis=0)
-            size = max_vals - min_vals
-        else:
-            size = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+        # -----------------------------
+        # distance
+        # -----------------------------
+        center_np = np.array([cx, cy, cz], dtype=np.float32)
+        distances = np.linalg.norm(positions - center_np, axis=1)
+        estimated_distance = float(np.mean(distances))
+
+        # -----------------------------
+        # size (AABB)
+        # -----------------------------
+        min_vals = np.min(positions, axis=0)
+        max_vals = np.max(positions, axis=0)
+        size = max_vals - min_vals
 
         return {
-            "num_points": num_points,
+            "num_voxels": num_voxels,
             "density": density,
             "is_dynamic": is_dynamic,
             "motion_confidence": motion_confidence,
             "distance": estimated_distance,
             "size": size,
+
+            "mean_dynamic_score": mean_dynamic_score,
+            "max_dynamic_score": max_dynamic_score,
+            "mean_temporal_stability": mean_temporal,
+            "mean_static_confidence": mean_static_conf,
         }
 
 
@@ -304,7 +305,7 @@ def main(args=None):
     try:
         executor.spin()
     except KeyboardInterrupt:
-        node.get_logger().info("Shutdown requested (Ctrl+C)")
+        pass
     finally:
         node.destroy_node()
         rclpy.shutdown()

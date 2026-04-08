@@ -486,7 +486,7 @@ void VoxelPerceptionNode::points_callback(
     auto t_map_voxel = std::chrono::steady_clock::now();
 
     // -----------------------------
-    // neighbor 계산 (grid)
+    // neighbor (grid)
     // -----------------------------
     for (auto & f : features)
     {
@@ -532,6 +532,15 @@ void VoxelPerceptionNode::points_callback(
     auto t_filter = std::chrono::steady_clock::now();
 
     // -----------------------------
+    // build change info msg
+    // -----------------------------
+    phaseshift_interfaces::msg::VoxelChangeArray change_info_msg;
+    change_info_msg.header = msg->header;
+    change_info_msg.header.frame_id = target_frame_;
+
+    change_info_msg.voxels.reserve(filtered_changed.size());
+
+    // -----------------------------
     // publish cloud
     // -----------------------------
     pcl::PointCloud<pcl::PointXYZI> live_cloud;
@@ -545,6 +554,35 @@ void VoxelPerceptionNode::points_callback(
         if (filtered_changed.find(f.key) == filtered_changed.end())
             continue;
 
+        // VoxelChange
+        phaseshift_interfaces::msg::VoxelChange v;
+
+        // position (voxel center)
+        auto pt = voxel_key_to_point(f.key);
+        v.position.x = pt.x;
+        v.position.y = pt.y;
+        v.position.z = pt.z;
+
+        // raw features
+        v.static_confidence = f.static_conf;
+        v.persistence = f.persistence;
+        v.neighbor_count = f.neighbor;
+
+        float normalized_persistence =
+            std::min(1.0f,
+                static_cast<float>(f.persistence) /
+                static_cast<float>(persistence_threshold_));
+
+        float temporal_stability = normalized_persistence;
+
+        float dynamic_score =
+        normalized_persistence * (1.0f - f.static_conf);
+
+        v.dynamic_score = dynamic_score;
+        v.temporal_stability = temporal_stability;  
+        change_info_msg.voxels.push_back(v);
+
+        // changed cloud 
         float score =
             0.5f * (float)f.persistence / persistence_threshold_ +
             0.3f * (f.neighbor / 26.0f) +
@@ -565,6 +603,7 @@ void VoxelPerceptionNode::points_callback(
 
     live_voxel_pub_->publish(live_msg);
     change_detect_pub_->publish(changed_msg);
+    change_detect_info_pub_->publish(change_info_msg);
 
     auto t_end = std::chrono::steady_clock::now();
 
@@ -593,7 +632,7 @@ void VoxelPerceptionNode::points_callback(
         get_logger(),
         *get_clock(),
         2000,
-        "🔥 Total=%.2f ms | Latency=%.2f | Range=%.2f | LidarVoxel=%.2f | TF=%.2f | MapVoxel=%.2f | Filter=%.2f",
+        "Total=%.2f ms | Latency=%.2f | Range=%.2f | LidarVoxel=%.2f | TF=%.2f | MapVoxel=%.2f | Filter=%.2f",
         total,
         latency_ms,
         range_ms,

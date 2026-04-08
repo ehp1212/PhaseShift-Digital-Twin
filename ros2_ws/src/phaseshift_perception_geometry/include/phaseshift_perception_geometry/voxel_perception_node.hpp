@@ -54,16 +54,6 @@
  * - Live voxel cloud (downsampled environment)
  * - Change detection cloud (dynamic regions)
  * - Voxel feature message (persistence, confidence, dynamic score)
- *
- * Keywords:
- * - Real-time Perception
- * - Voxel-based Mapping
- * - Change Detection
- * - Spatial Filtering
- * - Temporal Consistency
- * - Cache Optimization
- * - Data-oriented Design
- * - Robotics Perception Pipeline
  */
 class VoxelPerceptionNode : public rclcpp_lifecycle::LifecycleNode
 {

@@ -324,14 +324,11 @@ class VoxelCostmapNode(LifecycleNode):
         pass
 
 def main():
-    print("🔥 main start")
     rclpy.init()
 
     try:
         node = VoxelCostmapNode()
-        print("🔥 node created")
     except Exception as e:
-        print("❌ INIT ERROR:", e)
         raise
 
     executor = rclpy.executors.SingleThreadedExecutor()

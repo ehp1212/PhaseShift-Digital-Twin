@@ -9,6 +9,7 @@ from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
 
 from phaseshift_interfaces.msg import TrackedObjectArray
+
 class DetectionNavAdapter(Node):
 
     MINIMUM_SPEED_THREDHOLD = 0.05
@@ -87,6 +88,10 @@ class DetectionNavAdapter(Node):
                     radius = 0.3
                     shape_pts = self._sample_circle(cx, cy, radius)
 
+                elif obj.state_type == "UNKNOWN":
+                    radius = 0.3  
+                    shape_pts = self._sample_circle(cx, cy, radius)
+
                 else:
                     radius = 0.3
                     shape_pts = self._sample_circle(cx, cy, radius)
@@ -102,7 +107,7 @@ class DetectionNavAdapter(Node):
             return
 
         header = Header()
-        header.stamp = self.get_clock().now().to_msg()  # 🔥 더 안전
+        header.stamp = self.get_clock().now().to_msg()
         header.frame_id = "map"
 
         pc_msg = point_cloud2.create_cloud_xyz32(header, points)

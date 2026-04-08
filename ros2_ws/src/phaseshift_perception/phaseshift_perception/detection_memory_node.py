@@ -282,12 +282,6 @@ class DetectionMemoryNode(LifecycleNode):
         }
 
     def _classify_state(self, track):
-        """
-        Temporal classification:
-        - STATIC
-        - STATIC_NEW
-        - DYNAMIC
-        """
 
         positions = track['history']
 
@@ -302,21 +296,41 @@ class DetectionMemoryNode(LifecycleNode):
 
         displacement = ((x1 - x0)**2 + (y1 - y0)**2) ** 0.5
 
-        # density (Estimator Node)
-        density = getattr(track['obj'], 'density', 0.0)
+        obj = track['obj']
 
-        if density == 0.0:
-            if len(positions) > 3:
-                return "STATIC_NEW"
-            return "UNKNOWN"
+        density = getattr(obj, 'density', 0.0)
+        mean_dynamic_score = getattr(obj, 'mean_dynamic_score', 0.0)
+        mean_temporal = getattr(obj, 'mean_temporal_stability', 0.0)
+        mean_static_conf = getattr(obj, 'mean_static_confidence', 0.0)
+        support = getattr(obj, 'support_voxel_count', 0.0)
 
-        if density < 0.5:
+        # -----------------------------
+        # STATIC (map-known)
+        # -----------------------------
+        if mean_static_conf > 0.6:
             return "STATIC"
 
-        if displacement < 0.2:
+        # -----------------------------
+        # DYNAMIC (moving object)
+        # -----------------------------
+        if (
+            mean_dynamic_score > 0.5 and
+            displacement > 0.2
+        ):
+            return "DYNAMIC"
+
+        # -----------------------------
+        # STATIC_NEW (new obstacle)
+        # -----------------------------
+        if (
+            mean_static_conf < 0.3 and
+            mean_dynamic_score > 0.2 and
+            mean_temporal > 0.3 and
+            support >= 2
+        ):
             return "STATIC_NEW"
 
-        return "DYNAMIC"
+        return "UNKNOWN"
 
     # -----------------------------
     # PUB
