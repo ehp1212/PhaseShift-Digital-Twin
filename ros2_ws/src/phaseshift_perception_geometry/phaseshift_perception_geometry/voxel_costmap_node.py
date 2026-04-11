@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import rclpy
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
@@ -323,7 +325,12 @@ class VoxelCostmapNode(LifecycleNode):
 
 def main():
     rclpy.init()
-    node = VoxelCostmapNode()
+
+    try:
+        node = VoxelCostmapNode()
+    except Exception as e:
+        raise
+
     executor = rclpy.executors.SingleThreadedExecutor()
     executor.add_node(node)
 
@@ -339,3 +346,6 @@ def main():
 
         executor.shutdown()
         node.destroy_node()
+
+if __name__ == '__main__':
+    main()

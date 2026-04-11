@@ -14,6 +14,7 @@ namespace System
         private SaveMapClient _saveMapClient;
         private SetGoalClient _setGoalClient;
         private NavigateClient _navigateClient;
+        private GetVoxelMapClient _getVoxelMapClient;
 
         public ROS2ServiceController(ROS2System ros2System)
         {
@@ -26,6 +27,7 @@ namespace System
             _saveMapClient = new SaveMapClient(_ros2Node, "/system/save_map");
             _setGoalClient = new SetGoalClient(_ros2Node, "/system/set_goal");
             _navigateClient = new NavigateClient(_ros2Node, "/system/navigate");
+            _getVoxelMapClient = new GetVoxelMapClient(_ros2Node, "/system/get_voxel_map");
         }
 
         public async Task SaveMap(string mapName)
@@ -65,6 +67,23 @@ namespace System
             catch (Exception e)
             {
                 Debug.LogError($"SendGoal failed: {e.Message}");
+                throw;
+            }
+        }
+
+        public async Task<string> GetVoxelMap()
+        {
+            try
+            {
+                var request = new GetVoxelMapPath_Request();
+                
+                var response = await _getVoxelMapClient.CallAsync(request);
+                Debug.Log($"[Response : {response.Success}]  {response.Map_path}]");
+                return response.Success ? response.Map_path : string.Empty;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"GetVoxelMap failed: {e.Message}");
                 throw;
             }
         }

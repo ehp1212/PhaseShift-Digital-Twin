@@ -24,11 +24,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/TrackedObjectArray.msg"
 
   "msg/internal/NavState.msg"
+  "msg/VoxelChange.msg"
+  "msg/VoxelChangeArray.msg"
 
   "srv/SaveMap.srv"
   "srv/SaveVoxelMap.srv"
   "srv/SetGoal.srv"
   "srv/NavigateToGoal.srv"
+  "srv/GetVoxelMapPath.srv"
 
   "srv/internal/InternalCancelNavigate.srv"
   "srv/internal/InternalRequestNavigate.srv"

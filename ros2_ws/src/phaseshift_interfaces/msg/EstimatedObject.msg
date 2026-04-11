@@ -9,3 +9,9 @@ float32 dynamic_point_count
 float32 estimated_distance
 
 geometry_msgs/Vector3 estimated_size
+
+float32 support_voxel_count
+float32 mean_dynamic_score
+float32 max_dynamic_score
+float32 mean_temporal_stability
+float32 mean_static_confidence

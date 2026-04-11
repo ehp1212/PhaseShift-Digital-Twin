@@ -5,7 +5,6 @@ using Sensor.Lidar._2D;
 using Sensor.Visualizer;
 using UI;
 using UnityEngine;
-using UnityEngine.AI;
 using UnityEngine.Events;
 
 namespace System
@@ -37,7 +36,7 @@ namespace System
         public SLAMUI SLAMUI { get; set; }
         public bool IsOk => Ok();
         
-        private ScanRaycastSensor ScanRaycastSensor { get; set; }
+        [field: SerializeField] private ScanRaycastSensor ScanRaycastSensor { get; set; }
         private SLAMGeometryMapVisualizer SLAMGeometryMapVisualizer { get; set; }
         public ROS2ServiceController ROS2ServiceController { get; set; }
 
@@ -115,7 +114,7 @@ namespace System
             
             var context = UnityEngine.Resources.Load<SceneContext>("Context");
             ScreenUI = Instantiate(context.ScreenUI);
-            ScanRaycastSensor = Instantiate(context.ScanRaycastSensor, _control.transform);
+            
             ToggleScan(false);
             
             SLAMUI = Instantiate(context.SlamUI);
@@ -152,7 +151,7 @@ namespace System
         public void ToggleScan(bool toggle)
         {
             Debug.Log($"TOGGLE SCAN: {toggle}");
-            ScanRaycastSensor.gameObject.SetActive(toggle);
+            // ScanRaycastSensor.gameObject.SetActive(toggle);
         }
 
         public void StartManualDriving(bool start)

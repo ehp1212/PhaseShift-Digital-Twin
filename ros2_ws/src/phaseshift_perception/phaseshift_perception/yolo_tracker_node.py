@@ -118,7 +118,7 @@ class YOLOTrackerNode(LifecycleNode):
 
                 score = iou - (dist * 0.001)
 
-                if iou > 0.3 or dist < 30:
+                if iou > 0.3 and dist < 30:
                     if score > best_score:
                         best_score = score
                         best_idx = i
@@ -170,7 +170,7 @@ class YOLOTrackerNode(LifecycleNode):
         for track in self._tracks:
 
             # minimum condition
-            if track['hits'] < 2:
+            if track['hits'] < 3:
                 continue
 
             det = Detection2D()
