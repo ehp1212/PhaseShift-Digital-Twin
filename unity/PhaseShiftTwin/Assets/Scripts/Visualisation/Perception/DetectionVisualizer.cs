@@ -14,6 +14,7 @@ public class DetectionVisualizer : MonoBehaviour, IROS2Interface
     
     [Space]
     public BoundingBox bboxPrefab;
+    [SerializeField] private Color _bboxColor = Color.yellow;
 
     private Dictionary<int, BoundingBox> objects = new();
     private Dictionary<int, float> lastSeen = new();
@@ -32,7 +33,7 @@ public class DetectionVisualizer : MonoBehaviour, IROS2Interface
     private void Awake()
     {
         _material = new Material(Shader.Find("Sprites/Default"));
-        _material.SetColor("_BaseColor", Color.yellow);
+        _material.SetColor("_BaseColor", _bboxColor);
     }
 
     private void Update()
@@ -58,7 +59,7 @@ public class DetectionVisualizer : MonoBehaviour, IROS2Interface
             var id = FindMatch(pos);
             if (id == -1)
             {
-                id = CreateBBox(pos);
+                id = CreateBBox(pos, _bboxColor);
             }
             
             UpdateBBox(id, pos);
@@ -71,10 +72,10 @@ public class DetectionVisualizer : MonoBehaviour, IROS2Interface
     // ==========================
     // CREATE
     // ==========================
-    int CreateBBox(Vector3 pos)
+    int CreateBBox(Vector3 pos, Color color)
     {
         var bbox = Instantiate(bboxPrefab, pos, Quaternion.identity);
-        bbox.Initialize(_material, Color.yellow);
+        bbox.Initialize(_material, color);
         bbox.transform.SetParent(transform);
         
         int id = _nextId++;
