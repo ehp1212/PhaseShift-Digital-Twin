@@ -1,0 +1,24 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 50
+
+    diff_drive_controller:
+      type: diff_drive_controller/DiffDriveController
+
+diff_drive_controller:
+  ros__parameters:
+    use_stamped_vel: false
+    cmd_vel_topic: /diff_drive_controller/cmd_vel_unstamped
+    enable_odom_tf: false
+    left_wheel_names: ["front_left_wheel_joint", "rear_left_wheel_joint"]
+    right_wheel_names: ["front_right_wheel_joint", "rear_right_wheel_joint"]
+
+    wheel_separation: 0.555
+    wheel_radius: 0.1651
+
+    cmd_vel_timeout: 0.5
+    use_stamped_vel: false
+
+    publish_rate: 50.0
+    base_frame_id: base_footprint
+    odom_frame_id: odom

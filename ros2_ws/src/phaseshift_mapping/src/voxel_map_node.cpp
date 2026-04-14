@@ -341,7 +341,7 @@ bool VoxelMapNode::is_motion_stable(const builtin_interfaces::msg::Time& stamp)
     {
         tf = tf_buffer_->lookupTransform(
             "map",
-            "base_link",
+            "base_footprint",
             stamp,
             tf2::durationFromSec(0.1));
     }

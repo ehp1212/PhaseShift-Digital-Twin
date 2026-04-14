@@ -31,8 +31,8 @@ class DetectionMemoryNode(LifecycleNode):
         self._id_counter = 0
 
         self._match_distance_threshold = 1.0
-        self._active_timeout = 0.5
-        self._ttl = 4.0
+        self._active_timeout = 2.0
+        self._ttl = 6.0
         self._reacquire_time = 1.0
         self._min_hits = 3
         self._max_misses = 10

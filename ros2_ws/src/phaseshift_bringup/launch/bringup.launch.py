@@ -16,16 +16,19 @@ def generate_launch_description():
     # ==========================
     # URDF
     # ==========================
-    urdf_file = os.path.join(pkg_bringup, 'urdf', 'phaseshift_robot.urdf')
-    robot_description = Command(['xacro ', urdf_file])
+    xacro_file = os.path.join(pkg_bringup,'urdf', 'husky.urdf.xacro')
+    robot_description = Command(['xacro ', xacro_file])
+
+    # urdf_file = os.path.join(pkg_bringup, 'urdf', 'phaseshift_robot.urdf')
+    # robot_description = Command(['xacro ', urdf_file])
 
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
         output='screen',
-        parameters=[{
-            'robot_description': robot_description
-        }]
+        parameters=[
+            {'robot_description': robot_description}
+        ]
     )
     
     odom_node = Node(
@@ -36,9 +39,9 @@ def generate_launch_description():
     )
 
     # ==========================
-    # Nav2 
+    # Control 
     # ==========================
-    nav_launch = IncludeLaunchDescription(
+    control_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
                 get_package_share_directory('phaseshift_control'),
@@ -46,6 +49,22 @@ def generate_launch_description():
                 'control.launch.py'
             )
         )
+    )
+
+    # ==========================
+    # Hardware (ros2_control)
+    # ==========================
+    hardware_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('phaseshift_hardware'),
+                'launch',
+                'hardware.launch.py'
+            )
+        ),
+        launch_arguments={
+            'robot_description': robot_description
+        }.items()
     )
 
     # ==========================
@@ -58,9 +77,8 @@ def generate_launch_description():
         output="screen"
     )
 
-
     # ==========================
-    # Perception Layer
+    # Perception Geometry Layer
     # ==========================
     perception_geometry_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -109,9 +127,10 @@ def generate_launch_description():
         ),
 
         robot_state_publisher,
-        odom_node,
+        # odom_node,
         costmap_node,
-        nav_launch,
+        control_launch,
+        hardware_launch,
         perception_geometry_launch,
         perception_launch,
         orchestrator_launch

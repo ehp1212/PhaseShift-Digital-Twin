@@ -27,7 +27,6 @@ from phaseshift_interfaces.srv import (
 
 from phaseshift_control.slam_controller import SlamController
 from phaseshift_control.nav2_controller import Nav2Controller
-from phaseshift_control.odometry_controller import OdometryController
 from phaseshift_control.perception_controller import PerceptionController
 
 from .pipeline.core import Pipeline, TimeoutStep, ParallelStep
@@ -91,7 +90,6 @@ class OrchestratorNode(Node):
         self._system_publisher = SystemStatePublisher(self)
         self.slam_controller = SlamController(self)
         self.nav2_controller = Nav2Controller(self)
-        self.odom_controller = OdometryController(self)
         self.perception_controller = PerceptionController(self)
 
         # ------------------------------
@@ -300,9 +298,6 @@ class OrchestratorNode(Node):
         elif phase == SystemPhase.SYSTEM_INITIALIZING:
             self.get_logger().info("[Init] Checking map availability...")
 
-            if not self.odom_controller.is_active():
-                self.odom_controller.activate()
-
         elif phase == SystemPhase.SLAM_PREPARING:
             self.get_logger().info("[SLAM] Waiting for SLAM readiness...")
             if not self.slam_controller.is_running():
@@ -391,9 +386,7 @@ class OrchestratorNode(Node):
             return
 
         if self.phase == SystemPhase.SYSTEM_INITIALIZING:
-            if not self.odom_controller.is_active():
-                return
-
+            
             has_map = self.map_manager.resolve_2d_map(self.project_name, False) is not None
             if self.use_example_map or has_map:
                 self.set_phase(SystemPhase.NAV_PREPARING)
@@ -619,7 +612,6 @@ class OrchestratorNode(Node):
                 Parameter.Type.STRING,
                 voxel_map_path
             )
-
 
             param_req = SetParameters.Request()
             param_req.parameters = [params.to_parameter_msg()]
