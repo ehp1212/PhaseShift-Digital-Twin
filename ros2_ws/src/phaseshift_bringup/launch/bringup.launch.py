@@ -19,9 +19,6 @@ def generate_launch_description():
     xacro_file = os.path.join(pkg_bringup,'urdf', 'husky.urdf.xacro')
     robot_description = Command(['xacro ', xacro_file])
 
-    # urdf_file = os.path.join(pkg_bringup, 'urdf', 'phaseshift_robot.urdf')
-    # robot_description = Command(['xacro ', urdf_file])
-
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -31,13 +28,6 @@ def generate_launch_description():
         ]
     )
     
-    odom_node = Node(
-        package='phaseshift_control',
-        executable='odometry_node',
-        name='odometry_node',
-        output='screen'
-    )
-
     # ==========================
     # Control 
     # ==========================
@@ -127,7 +117,6 @@ def generate_launch_description():
         ),
 
         robot_state_publisher,
-        # odom_node,
         costmap_node,
         control_launch,
         hardware_launch,

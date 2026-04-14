@@ -74,18 +74,18 @@ controller_server:
       publish_trajectories: true
 
       min_vel_x: 0.0
-      max_vel_x: 0.26
+      max_vel_x: 0.16
       min_vel_y: 0.0
       max_vel_y: 0.0
-      max_vel_theta: 1.5
+      max_vel_theta: 0.075
 
       min_speed_xy: 0.0
       max_speed_xy: 0.26
       min_speed_theta: 0.0
 
-      acc_lim_x: 2.5
+      acc_lim_x: 0.5
       acc_lim_y: 0.0
-      acc_lim_theta: 3.2
+      acc_lim_theta: 0.5
       decel_lim_x: -2.5
       decel_lim_y: 0.0
       decel_lim_theta: -3.2
@@ -189,14 +189,14 @@ local_costmap:
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
-        observation_sources: dynamic_points perception velodyne scan
-
-        dynamic_points:
-          topic: /perception_geometry/change_points
-          max_obstacle_height: 2.0
-          clearing: true
-          marking: true
-          data_type: "PointCloud2"
+        # observation_sources: dynamic_points perception velodyne scan
+        observation_sources: perception velodyne scan
+        # dynamic_points:
+        #   topic: /perception_geometry/change_points
+        #   max_obstacle_height: 2.0
+        #   clearing: true
+        #   marking: true
+        #   data_type: "PointCloud2"
 
         perception:
           topic: /perception/obstacles

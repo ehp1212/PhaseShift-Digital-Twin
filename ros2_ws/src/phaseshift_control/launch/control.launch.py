@@ -4,6 +4,7 @@ from launch.actions import IncludeLaunchDescription
 from launch_ros.actions import Node
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_directory
+from launch_ros.actions import SetRemap
 import os
 
 def generate_launch_description():
@@ -23,7 +24,7 @@ def generate_launch_description():
             'autostart': 'false',
             'params_file': 
             os.path.join(pkg_bringup, 'config', 'nav2.yaml'),
-            'map': ''
+            'map': '',
         }.items()
     )
 
@@ -39,11 +40,17 @@ def generate_launch_description():
             'use_sim_time': 'false',
             'autostart': 'false',
             'params_file': os.path.join(pkg_bringup, 'config', 'nav2.yaml'),
-            'map': ''  # dummy
+            'map': ''
         }.items()
     )
 
+    remap_cmd_vel = SetRemap(
+        src='/cmd_vel',
+        dst='/diff_drive_controller/cmd_vel_unstamped'
+    )
+
     return LaunchDescription([
+        remap_cmd_vel,
         nav2_navigation_launch,
         nav2_localization_launch,
     ])

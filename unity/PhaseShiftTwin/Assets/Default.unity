@@ -846,6 +846,10 @@ MonoBehaviour:
   _frameId: lidar_link
   _topicName: /velodyne_points
   _frequency: 10
+  _historyPolicy: 1
+  _historyDepth: 1
+  _reliabilityPolicy: 1
+  _durabilityPolicy: 1
 --- !u!1 &319686530
 GameObject:
   m_ObjectHideFlags: 0
@@ -1437,6 +1441,8 @@ MonoBehaviour:
   OnInitialize:
     m_PersistentCalls:
       m_Calls: []
+  nav2InterfaceHolder: {fileID: 0}
+  nav2ExecInterfaceHolder: {fileID: 0}
 --- !u!4 &752497261
 Transform:
   m_ObjectHideFlags: 0

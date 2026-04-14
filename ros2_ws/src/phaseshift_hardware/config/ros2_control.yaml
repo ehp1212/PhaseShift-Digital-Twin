@@ -8,7 +8,8 @@ controller_manager:
 diff_drive_controller:
   ros__parameters:
     use_stamped_vel: false
-    cmd_vel_topic: /diff_drive_controller/cmd_vel_unstamped
+    # cmd_vel_topic: /diff_drive_controller/cmd_vel_unstamped
+    cmd_vel_topic: /cmd_vel_nav
     enable_odom_tf: false
     left_wheel_names: ["front_left_wheel_joint", "rear_left_wheel_joint"]
     right_wheel_names: ["front_right_wheel_joint", "rear_right_wheel_joint"]
@@ -17,7 +18,6 @@ diff_drive_controller:
     wheel_radius: 0.1651
 
     cmd_vel_timeout: 0.5
-    use_stamped_vel: false
 
     publish_rate: 50.0
     base_frame_id: base_footprint
