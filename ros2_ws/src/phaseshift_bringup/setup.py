@@ -4,6 +4,13 @@ import os
 
 package_name = 'phaseshift_bringup'
 
+def package_files(directory):
+    paths = []
+    for (path, _, filenames) in os.walk(directory):
+        for filename in filenames:
+            paths.append(os.path.join(path, filename))
+    return paths
+
 setup(
     name=package_name,
     version='0.0.0',
@@ -18,8 +25,7 @@ setup(
             glob('launch/*.launch.py')),
 
         # urdf files
-        (os.path.join('share', package_name, 'urdf'),
-            glob('urdf/*')),
+        ('share/phaseshift_bringup/urdf', package_files('urdf')),
 
         # demo map
         (os.path.join('share', package_name, 'maps'),

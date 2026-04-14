@@ -1,0 +1,115 @@
+<?xml version="1.0"?>
+<robot name="phaseshift_robot" xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <!-- ========================= -->
+  <!-- Husky Core -->
+  <!-- ========================= -->
+  <xacro:property name="M_PI" value="3.141592653589793"/>
+
+  <xacro:property name="wheelbase" value="0.5120"/>
+  <xacro:property name="track" value="0.555"/>
+
+  <xacro:property name="wheel_length" value="0.1143"/>
+  <xacro:property name="wheel_radius" value="0.1651"/>
+
+  <xacro:include filename="$(find phaseshift_bringup)/urdf/wheel.urdf.xacro"/>
+
+  <!-- base -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://phaseshift_bringup/urdf/base_link.dae"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <!-- TF root -->
+  <link name="base_footprint"/>
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0"/>
+  </joint>
+
+  <!-- ========================= -->
+  <!-- Husky Wheel Config -->
+  <!-- ========================= -->
+
+  <xacro:property name="wheelbase" value="0.5120"/>
+  <xacro:property name="track" value="0.555"/>
+  <xacro:property name="wheel_radius" value="0.1651"/>
+
+  <xacro:husky_wheel wheel_prefix="front_left">
+    <origin xyz="${wheelbase/2} ${track/2} 0" />
+  </xacro:husky_wheel>
+
+  <xacro:husky_wheel wheel_prefix="front_right">
+    <origin xyz="${wheelbase/2} ${-track/2} 0" />
+  </xacro:husky_wheel>
+
+  <xacro:husky_wheel wheel_prefix="rear_left">
+    <origin xyz="${-wheelbase/2} ${track/2} 0" />
+  </xacro:husky_wheel>
+
+  <xacro:husky_wheel wheel_prefix="rear_right">
+    <origin xyz="${-wheelbase/2} ${-track/2} 0" />
+  </xacro:husky_wheel>
+
+  <link name="lidar_link"/>
+
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="lidar_link"/>
+    <origin xyz="-0.087 0 0.694" rpy="0 0 0"/>
+  </joint>
+
+  <link name="camera_link"/>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="-0.087 0 0.694" rpy="0 0 0"/>
+  </joint>
+
+  <link name="camera_optical_frame"/>
+
+  <joint name="camera_optical_frame_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
+  </joint>
+
+  <!-- ========================= -->
+  <!-- ros2_control -->
+  <!-- ========================= -->
+
+  <ros2_control name="HuskySystem" type="system">
+
+    <hardware>
+      <plugin>phaseshift_hardware/UnityDiffDriveHardware</plugin>
+    </hardware>
+
+    <joint name="front_left_wheel_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+    </joint>
+
+    <joint name="rear_left_wheel_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+    </joint>
+
+    <joint name="front_right_wheel_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+    </joint>
+
+    <joint name="rear_right_wheel_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+    </joint>
+
+  </ros2_control>
+
+</robot>

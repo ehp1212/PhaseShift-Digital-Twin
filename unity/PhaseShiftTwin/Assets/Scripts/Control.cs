@@ -72,6 +72,8 @@ public class InputRouter
 
     public void PublishInput()
     {
+        if (_linearInput == 0 && _angularInput == 0) return;
+        
         _twistMsg.Linear.X = _linearInput * _control.MaxLinearVelocity;
         _twistMsg.Linear.Y = 0.0;
         _twistMsg.Linear.Z = 0.0;
@@ -79,7 +81,6 @@ public class InputRouter
         _twistMsg.Angular.X = 0.0;
         _twistMsg.Angular.Y = 0.0;
         _twistMsg.Angular.Z = -_angularInput * _control.MaxAngularVelocity;
-
         _cmdPublisher.Publish(_twistMsg);
     }
 }

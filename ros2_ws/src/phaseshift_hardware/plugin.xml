@@ -1,0 +1,6 @@
+<library path="phaseshift_hardware">
+  <class
+    name="phaseshift_hardware/UnityDiffDriveHardware"
+    type="UnityDiffDriveHardware"
+    base_class_type="hardware_interface::SystemInterface"/>
+</library>
