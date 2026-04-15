@@ -156,3 +156,28 @@ Consistent testing of navigation and perception pipelines
 ### Automation & Validation
 - **ScenarioRunner** — automated navigation and scenario execution  
 - **LatencyMonitor** — end-to-end sensor-to-control latency measurement  
+
+## 4. Validation Strategy
+
+Beyond simulation-only validation, this framework was designed with a sim-to-real testing approach in mind.
+
+### Sensor & Actuator Mocking
+Simulation outputs (LiDAR, camera, depth) were used to mock real sensor inputs, enabling early-stage validation of perception and navigation pipelines without requiring physical hardware.
+
+This allowed:
+- Testing control logic under controlled, repeatable conditions
+- Injecting edge cases that are difficult to reproduce in real environments
+- Decoupling software development from hardware availability
+
+### Sim-to-Real Perception Validation
+Perception nodes developed and validated in simulation were later tested against real camera inputs.
+
+This ensured:
+- Consistency between simulated and real-world perception outputs
+- Verification of object detection and spatial reasoning pipelines
+- Identification of sim-to-real gaps in sensor characteristics and noise
+
+### Outcome
+- Reduced reliance on physical robots during development
+- Improved confidence before real-world deployment
+- Established a workflow bridging simulation-based testing and real-world validation
